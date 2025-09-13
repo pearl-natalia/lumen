@@ -1,0 +1,35 @@
+{
+  "sources": [
+    {
+      "type": "red_light_traffic_lights_kitchener_and_waterloo",
+      "media": "webpage",
+      "url": "https://www.regionofwaterloo.ca/en/living-here/red-light-cameras.aspx#Kitchener",
+      "static": true
+    },
+    {
+      "type": "speed_cameras",
+      "media": "webpage",
+      "url": "https://www.regionofwaterloo.ca/en/living-here/municipal-speed-cameras-certificates-of-accuracy.aspx",
+      "static": true
+    },
+    {
+      "type": "911_calls",
+      "media": "webpage",
+      "url": "https://wrps.ca/news/incidents",
+      "static": false
+    },
+    {
+      "type": "live_traffic_collisions",
+      "media": "api",
+      "url": "https://services1.arcgis.com/qAo1OsXi67t7XgmS/arcgis/rest/services/Traffic_Collisions/FeatureServer/0/query?outFields=*&where=1%3D1&f=geojson",
+      "static": false
+    },
+    {
+      "type": "user_submitted_reports",
+      "media":"api",
+      "function":"kw_511_events",
+      "url": "https://511on.ca/api/v2/get/event",
+      "static": false
+    }
+  ]
+}

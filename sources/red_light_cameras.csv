@@ -1,0 +1,16 @@
+city,approach_direction,primary_road,cross_street_or_notes
+Cambridge,northbound,Hespeler Road,"Lang's Drive / Sheldon Drive"
+Cambridge,eastbound,Park Hill Road,Water Street
+Cambridge,southbound,Franklin Boulevard,"Saginaw Parkway; Elgin Street"
+Kitchener,northbound,Duke Street,Frederick Street
+Kitchener,southbound,Homer Watson Boulevard,Pioneer Drive
+Kitchener,eastbound,Ottawa Street,Sunrise Shopping Centre
+Waterloo,westbound,Bridgeport Road,Albert Street
+Waterloo,westbound,Bridgeport Road,Regina Street
+Waterloo,eastbound,Erb Street,Regina Street
+Waterloo,northbound,King Street,Bridgeport Road
+Waterloo,eastbound,University Avenue,"Dale Crescent / Lincoln Road"
+Waterloo,southbound,Weber Street,Bridgeport Road
+Waterloo,southbound,Weber Street,Erb Street
+Waterloo,northbound,Weber Street,"Lincoln Road / Bridgeport Plaza"
+Waterloo,northbound,Weber Street,Union Street
