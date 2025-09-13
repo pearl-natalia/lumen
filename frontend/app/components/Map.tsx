@@ -25,14 +25,14 @@ const Map: React.FC = () => {
     mapRef.current = new mapboxgl.Map({
       container: mapContainerRef.current as HTMLElement,
       style: 'mapbox://styles/mapbox/standard',
-      center: [-79.4512, 43.6568],
+      center: [-80.5204, 43.4643],
       zoom: 13
     });
 
     mapRef.current.addControl(
       new MapboxGeocoder({
         accessToken: mapboxToken,
-        mapboxgl: mapboxgl 
+        mapboxgl: mapboxgl as unknown as typeof import('mapbox-gl')
       })
     );
 
@@ -43,7 +43,7 @@ const Map: React.FC = () => {
     };
   }, [mapboxToken]);
 
-  return <div id="map-container" ref={mapContainerRef} style={{ height: '100%' }} />;
+  return <div id="map-container" ref={mapContainerRef} style={{ height: '100vh', width: '100vw' }} />;
 };
 
 export default Map;
