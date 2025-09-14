@@ -12,11 +12,13 @@ load_dotenv()
 mongo_uri = os.getenv("MONGO_URI")
 mongo_db = os.getenv("MONGO_DB")
 mapbox_token = os.getenv("MAPBOX_TOKEN")
+vapi_key = os.getenv("VAPI_PUBLIC_KEY")
 
 print(f"\nEnvironment variables:")
 print(f"MONGO_URI: {'✅ SET' if mongo_uri else '❌ NOT SET'}")
 print(f"MONGO_DB: {'✅ SET' if mongo_db else '❌ NOT SET'}")
 print(f"MAPBOX_TOKEN: {'✅ SET' if mapbox_token else '❌ NOT SET'}")
+print(f"VAPI_PUBLIC_KEY: {'✅ SET' if vapi_key else '❌ NOT SET'}")
 
 if mongo_uri:
     # Don't print full URI for security, just show it exists
