@@ -241,6 +241,11 @@
     .mapboxgl-ctrl-zoom-in, .mapboxgl-ctrl-zoom-out {
       width:34px !important; height:34px !important;
     }
+    
+    /* Match geolocate button width */
+    .mapboxgl-ctrl-geolocate {
+      width:34px !important; height:34px !important;
+    }
 
     /* New Sidebar Styling */
     .header-section {
@@ -1016,7 +1021,7 @@
         Object.keys(streetCrimeMap).forEach(streetName => {
           // Add condition for this street name
           streetNameExpression.push(['==', ['upcase', ['get', 'name']], streetName]);
-          streetNameExpression.push('#dc2626'); // Red color for crime streets
+          streetNameExpression.push('#f87171'); // Lighter red color for crime streets
         });
         streetNameExpression.push('rgba(0,0,0,0)'); // Transparent for non-crime streets
         
@@ -1030,16 +1035,17 @@
             filter: [
               'all',
               ['==', ['geometry-type'], 'LineString'],
-              ['in', ['upcase', ['get', 'name']], ['literal', Object.keys(streetCrimeMap)]]
+              ['in', ['upcase', ['get', 'name']], ['literal', Object.keys(streetCrimeMap)]],
+              ['in', ['get', 'class'], ['literal', ['primary', 'secondary', 'tertiary', 'trunk', 'motorway']]]
             ],
             paint: {
               'line-width': [
                 'interpolate',
                 ['linear'],
                 ['zoom'],
-                10, 3,
-                16, 8,
-                20, 16
+                10, 2,
+                16, 4,
+                20, 8
               ],
               'line-color': streetNameExpression,
               'line-opacity': 0.8
