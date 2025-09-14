@@ -450,10 +450,17 @@ def get_camera_data():
             city = camera.get('city', '').strip()
             camera_type = camera.get('camera_type', '').strip()
             
-            if not primary_road:
-                continue
+            # Create intersection name, handling missing data gracefully
+            if primary_road and cross_street:
+                intersection = f"{primary_road} & {cross_street}"
+            elif primary_road:
+                intersection = primary_road
+            elif cross_street:
+                intersection = cross_street
+            else:
+                intersection = f"Camera #{str(camera.get('_id', 'Unknown'))[-4:]}"
                 
-            print(f"[DEBUG] Processing camera: {camera_type} at {primary_road} & {cross_street}")
+            print(f"[DEBUG] Processing camera: {camera_type} at {intersection}")
             
             camera_info = {
                 'id': str(camera.get('_id', '')),
@@ -461,7 +468,7 @@ def get_camera_data():
                 'cross_street': cross_street,
                 'city': city,
                 'camera_type': camera_type,
-                'intersection': f"{primary_road} & {cross_street}" if cross_street else primary_road
+                'intersection': intersection
             }
             
             camera_data.append(camera_info)
