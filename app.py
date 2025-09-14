@@ -12,13 +12,13 @@ STATIC_DIR = BASE_DIR / "static"
 
 load_dotenv()                      # load .env first
 MAPBOX_TOKEN = os.getenv("MAPBOX_TOKEN")
-MONGO_URI = os.getenv("MONGO_URI")
+MONGO_URI = os.getenv("MONGODB_URI")  # Changed from MONGO_URI to MONGODB_URI
 MONGO_DB = os.getenv("MONGO_DB")
 
 # Initialize MongoDB client
 try:
     if not MONGO_URI or not MONGO_DB:
-        print("[WARN] MONGO_URI or MONGO_DB not set in environment variables", flush=True)
+        print("[WARN] MONGODB_URI or MONGO_DB not set in environment variables", flush=True)
         mongo_client = None
         incidents_collection = None
     else:
@@ -31,7 +31,7 @@ try:
         print(f"[INFO] Connected to MongoDB Atlas: {MONGO_DB}", flush=True)
 except Exception as e:
     print(f"[WARN] MongoDB Atlas connection failed: {e}", flush=True)
-    print("[INFO] Make sure MONGO_URI and MONGO_DB are set in your .env file", flush=True)
+    print("[INFO] Make sure MONGODB_URI and MONGO_DB are set in your .env file", flush=True)
     mongo_client = None
     incidents_collection = None
 
@@ -224,6 +224,78 @@ def route():
     # Always return a FeatureCollection
     return jsonify({"type": "FeatureCollection", "features": features})
 
+@app.get("/debug-streets")
+def debug_streets():
+    """Debug endpoint to show which streets are being parsed from MongoDB."""
+    if incidents_collection is None:
+        return jsonify({"error": "MongoDB not connected", "streets": []})
+    
+    try:
+        # Get all incidents from MongoDB
+        incidents = list(incidents_collection.find({}).limit(2000))
+        
+        # Group incidents by street name
+        street_incidents = {}
+        raw_locations = []
+        
+        for incident in incidents:
+            location_text = incident.get("location", "").strip()
+            raw_locations.append(location_text)
+            
+            location_upper = location_text.upper()
+            if not location_upper:
+                continue
+            
+            # Extract street name from location
+            street_name = None
+            
+            # Try to extract street name from various formats
+            if " ST " in location_upper or location_upper.endswith(" ST"):
+                street_name = location_upper.split(" BLOCK ")[0] if " BLOCK " in location_upper else location_upper
+                street_name = street_name.replace(" BLOCK", "").strip()
+            elif " AVE " in location_upper or location_upper.endswith(" AVE"):
+                street_name = location_upper.split(" BLOCK ")[0] if " BLOCK " in location_upper else location_upper
+                street_name = street_name.replace(" BLOCK", "").strip()
+            elif " RD " in location_upper or location_upper.endswith(" RD"):
+                street_name = location_upper.split(" BLOCK ")[0] if " BLOCK " in location_upper else location_upper
+                street_name = street_name.replace(" BLOCK", "").strip()
+            elif " DR " in location_upper or location_upper.endswith(" DR"):
+                street_name = location_upper.split(" BLOCK ")[0] if " BLOCK " in location_upper else location_upper
+                street_name = street_name.replace(" BLOCK", "").strip()
+            else:
+                # Try to extract from other formats
+                parts = location_upper.split()
+                if len(parts) >= 2:
+                    # Remove potential house numbers from the beginning
+                    if parts[0].isdigit():
+                        street_name = " ".join(parts[1:])
+                    else:
+                        street_name = location_upper
+            
+            if not street_name:
+                continue
+                
+            # Clean up street name
+            street_name = street_name.replace("BLOCK OF ", "").replace(" BLOCK", "").strip()
+            
+            if street_name not in street_incidents:
+                street_incidents[street_name] = 0
+            street_incidents[street_name] += 1
+        
+        # Sort streets by incident count
+        sorted_streets = sorted(street_incidents.items(), key=lambda x: x[1], reverse=True)
+        
+        return jsonify({
+            "total_incidents": len(incidents),
+            "total_streets": len(street_incidents),
+            "sample_raw_locations": raw_locations[:10],
+            "streets_by_incident_count": sorted_streets[:20],
+            "all_street_names": list(street_incidents.keys())
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e), "streets": []})
+
 @app.get("/crime-data")
 def crime_data():
     """Fetch crime incidents from MongoDB and return street segments as GeoJSON for map overlay."""
@@ -315,37 +387,136 @@ def crime_data():
             "features": features
         })
     
-    # Original MongoDB code for when database is connected
+    # MongoDB code - aggregate incidents by street and create street segments
     try:
-        # Get recent incidents (last 6 months for performance)
-        six_months_ago = datetime.now().replace(month=datetime.now().month-6 if datetime.now().month > 6 else datetime.now().month+6, year=datetime.now().year-1 if datetime.now().month <= 6 else datetime.now().year)
+        print("[INFO] Connecting to MongoDB to fetch crime incidents", flush=True)
         
-        incidents = list(incidents_collection.find({
-            "incident_date": {"$gte": six_months_ago}
-        }).limit(1000))  # Limit for performance
+        # Get all incidents from MongoDB
+        incidents = list(incidents_collection.find({}).limit(2000))  # Increase limit to get more data
+        print(f"[INFO] Found {len(incidents)} incidents in MongoDB", flush=True)
         
-        features = []
+        # Group incidents by street name
+        street_incidents = {}
+        
         for incident in incidents:
-            # Geocode the location to get coordinates
+            location_text = incident.get("location", "").strip().upper()
+            if not location_text:
+                continue
+            
+            # Extract street name from location (remove house numbers, etc.)
+            # Look for common street patterns
+            street_name = None
+            
+            # Try to extract street name from various formats
+            if " ST " in location_text or location_text.endswith(" ST"):
+                street_name = location_text.split(" BLOCK ")[0] if " BLOCK " in location_text else location_text
+                street_name = street_name.replace(" BLOCK", "").strip()
+            elif " AVE " in location_text or location_text.endswith(" AVE"):
+                street_name = location_text.split(" BLOCK ")[0] if " BLOCK " in location_text else location_text
+                street_name = street_name.replace(" BLOCK", "").strip()
+            elif " RD " in location_text or location_text.endswith(" RD"):
+                street_name = location_text.split(" BLOCK ")[0] if " BLOCK " in location_text else location_text
+                street_name = street_name.replace(" BLOCK", "").strip()
+            elif " DR " in location_text or location_text.endswith(" DR"):
+                street_name = location_text.split(" BLOCK ")[0] if " BLOCK " in location_text else location_text
+                street_name = street_name.replace(" BLOCK", "").strip()
+            else:
+                # Try to extract from other formats
+                parts = location_text.split()
+                if len(parts) >= 2:
+                    # Remove potential house numbers from the beginning
+                    if parts[0].isdigit():
+                        street_name = " ".join(parts[1:])
+                    else:
+                        street_name = location_text
+            
+            if not street_name:
+                continue
+                
+            # Clean up street name
+            street_name = street_name.replace("BLOCK OF ", "").replace(" BLOCK", "").strip()
+            
+            if street_name not in street_incidents:
+                street_incidents[street_name] = []
+            
+            # Format incident data
+            incident_date = incident.get("incident_date")
+            formatted_date = incident_date.strftime("%B %d, %Y") if incident_date else "Unknown date"
+            formatted_time = incident_date.strftime("%I:%M %p") if incident_date else "Unknown time"
+            
+            street_incidents[street_name].append({
+                "call_type": incident.get("call_type", "Unknown"),
+                "formatted_date": formatted_date,
+                "formatted_time": formatted_time,
+                "location": incident.get("location", "")
+            })
+        
+        print(f"[INFO] Grouped incidents into {len(street_incidents)} unique streets", flush=True)
+        
+        # Debug: Print all street names being mapped
+        street_names = list(street_incidents.keys())
+        print(f"\n🏘️  STREETS BEING MAPPED FROM YOUR MONGODB:", flush=True)
+        print(f"📊 Total: {len(street_incidents)} unique streets", flush=True)
+        print("🚨 Top streets by incident count:", flush=True)
+        
+        # Sort by incident count and show top streets
+        sorted_streets = sorted(street_incidents.items(), key=lambda x: len(x[1]), reverse=True)
+        for i, (street_name, incidents_list) in enumerate(sorted_streets[:15]):
+            print(f"  {i+1:2d}. {street_name:<30} ({len(incidents_list)} incidents)", flush=True)
+        
+        if len(sorted_streets) > 15:
+            print(f"  ... and {len(sorted_streets) - 15} more streets", flush=True)
+        
+        print(f"\n📋 All {len(street_incidents)} street names:", flush=True)
+        for i, street_name in enumerate(street_names, 1):
+            print(f"  {i:3d}. {street_name}", flush=True)
+        print("", flush=True)
+        
+        # Create street segment features
+        features = []
+        
+        for street_name, incidents_list in street_incidents.items():
+            if len(incidents_list) == 0:
+                continue
+                
+            # Get unique crime types for this street
+            crime_types = list(set([inc["call_type"] for inc in incidents_list if inc["call_type"] != "Unknown"]))
+            
+            # Try to geocode the street to get coordinates
             try:
-                location_text = incident.get("location", "")
-                if not location_text:
-                    continue
-                    
-                # Use Mapbox geocoding to get coordinates for the location
-                lat, lon = _mapbox_geocode_one(location_text + ", Kitchener, ON, Canada")
+                # Geocode street name to get a base coordinate
+                base_lat, base_lon = _mapbox_geocode_one(f"{street_name}, Kitchener, ON, Canada")
                 
-                # Format incident date
-                incident_date = incident.get("incident_date")
-                formatted_date = incident_date.strftime("%B %d, %Y") if incident_date else "Unknown date"
-                formatted_time = incident_date.strftime("%I:%M %p") if incident_date else "Unknown time"
+                # Create a simple street segment (you can enhance this with actual street geometry later)
+                # For now, create a small line segment around the geocoded point
+                if "ST" in street_name and ("N" in street_name or "S" in street_name):
+                    # North-South street - create vertical line
+                    coordinates = [
+                        [base_lon, base_lat - 0.001],
+                        [base_lon, base_lat],
+                        [base_lon, base_lat + 0.001]
+                    ]
+                elif "AVE" in street_name and ("E" in street_name or "W" in street_name):
+                    # East-West street - create horizontal line
+                    coordinates = [
+                        [base_lon - 0.002, base_lat],
+                        [base_lon, base_lat],
+                        [base_lon + 0.002, base_lat]
+                    ]
+                else:
+                    # Default to horizontal line
+                    coordinates = [
+                        [base_lon - 0.001, base_lat],
+                        [base_lon, base_lat],
+                        [base_lon + 0.001, base_lat]
+                    ]
                 
-                # Create a point feature for the incident
+                # Create street segment feature
                 feature = {
                     "type": "Feature",
                     "geometry": {
-                        "type": "Point",
-                        "coordinates": [lon, lat]
+                        "type": "LineString",
+                        "coordinates": coordinates
                     },
                     "properties": {
                         "incident_id": incident.get("incident_id", ""),
