@@ -308,17 +308,50 @@ def format_date(date_str):
     if not date_str:
         return "Unknown"
     try:
-        # Handle different date formats
+        from datetime import datetime
+        import re
+        
+        # Handle datetime objects directly
+        if isinstance(date_str, datetime):
+            return date_str.strftime('%b %d')
+        
         if isinstance(date_str, str):
-            # Try parsing common date formats
-            from datetime import datetime
+            # Handle ISO 8601 format: 2025-08-18T13:00:00.000+00:00
+            if 'T' in date_str and ('Z' in date_str or '+' in date_str or date_str.count(':') >= 2):
+                # Parse ISO format
+                # Remove timezone info and milliseconds for simpler parsing
+                clean_date = date_str.split('T')[0]  # Get just the date part
+                try:
+                    dt = datetime.strptime(clean_date, '%Y-%m-%d')
+                    return dt.strftime('%b %d')
+                except ValueError:
+                    pass
+            
+            # Handle formats like "Monday August 18, 1pm" - extract date part
+            if ',' in date_str:
+                # Split by comma and take the first part for date
+                date_part = date_str.split(',')[0].strip()
+                # Try to parse formats like "Monday August 18"
+                try:
+                    # Remove day name if present
+                    words = date_part.split()
+                    if len(words) >= 3:
+                        # Try "Month Day" format
+                        month_day = ' '.join(words[-2:])
+                        dt = datetime.strptime(f"{month_day} 2024", "%B %d %Y")
+                        return dt.strftime('%b %d')
+                except ValueError:
+                    pass
+            
+            # Try standard formats
             for fmt in ['%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%Y-%m-%d %H:%M:%S']:
                 try:
                     dt = datetime.strptime(date_str, fmt)
-                    return dt.strftime('%Y-%m-%d')
+                    return dt.strftime('%b %d')
                 except ValueError:
                     continue
-        return str(date_str)
+                    
+        return str(date_str)[:10]  # Truncate long strings
     except Exception:
         return "Unknown"
 
@@ -327,16 +360,74 @@ def format_time(time_str):
     if not time_str:
         return "Unknown"
     try:
-        # Handle different time formats
+        from datetime import datetime
+        import re
+        
+        # Handle datetime objects directly
+        if isinstance(time_str, datetime):
+            return time_str.strftime('%I:%M %p')
+        
         if isinstance(time_str, str):
-            from datetime import datetime
-            for fmt in ['%H:%M:%S', '%H:%M', '%I:%M %p', '%I:%M:%S %p']:
+            # Handle ISO 8601 format: 2025-08-18T13:00:00.000+00:00
+            if 'T' in time_str and ('Z' in time_str or '+' in time_str or time_str.count(':') >= 2):
+                # Parse ISO format
                 try:
-                    dt = datetime.strptime(time_str, fmt)
+                    # Remove timezone and milliseconds for simpler parsing
+                    if '+' in time_str:
+                        clean_time = time_str.split('+')[0]
+                    elif 'Z' in time_str:
+                        clean_time = time_str.replace('Z', '')
+                    else:
+                        clean_time = time_str
+                    
+                    # Remove milliseconds if present
+                    if '.' in clean_time:
+                        clean_time = clean_time.split('.')[0]
+                    
+                    # Parse the datetime and extract time
+                    dt = datetime.fromisoformat(clean_time)
                     return dt.strftime('%H:%M')
-                except ValueError:
-                    continue
-        return str(time_str)
+                except Exception:
+                    pass
+            
+            # Handle formats like "Monday August 18, 1pm" - extract time part
+            if ',' in time_str:
+                # Split by comma and take the last part for time
+                time_part = time_str.split(',')[-1].strip()
+                
+                # Handle formats like "11pm", "1pm", "12am"
+                time_match = re.search(r'(\d{1,2})(am|pm)', time_part.lower())
+                if time_match:
+                    hour = int(time_match.group(1))
+                    period = time_match.group(2)
+                    
+                    # Convert to 24-hour format
+                    if period == 'am':
+                        if hour == 12:
+                            hour = 0
+                    else:  # pm
+                        if hour != 12:
+                            hour += 12
+                    
+                    return f"{hour:02d}:00"
+            
+            # If no comma, try to find time pattern directly
+            time_match = re.search(r'(\d{1,2})(am|pm)', time_str.lower())
+            if time_match:
+                hour = int(time_match.group(1))
+                period = time_match.group(2)
+                
+                # Convert to 24-hour format
+                if period == 'am':
+                    if hour == 12:
+                        hour = 0
+                else:  # pm
+                    if hour != 12:
+                        hour += 12
+                
+                return f"{hour:02d}:00"
+                    
+        return "Unknown"
     except Exception:
         return "Unknown"
 
@@ -387,8 +478,8 @@ def get_crime_data():
                 'location': location,
                 'call_type': incident.get('call_type', ''),
                 'title_line': incident.get('title_line', ''),
-                'formatted_date': format_date(incident.get('date')),
-                'formatted_time': format_time(incident.get('time'))
+                'formatted_date': format_date(incident.get('incident_date')),
+                'formatted_time': format_time(incident.get('incident_date'))
             }
             
             street_data[street_name]['incidents'].append(incident_data)
