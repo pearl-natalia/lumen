@@ -1,5 +1,6 @@
 # app.py
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from dotenv import load_dotenv
 from pathlib import Path
 import os, json, math, traceback, requests
@@ -78,6 +79,7 @@ except Exception:
 
 # -------------------- Flask app ----------------------
 app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="/static")
+CORS(app)  # Enable CORS for all routes
 
 @app.route("/")
 def index():
@@ -296,253 +298,184 @@ def debug_streets():
     except Exception as e:
         return jsonify({"error": str(e), "streets": []})
 
-@app.get("/crime-data")
-def crime_data():
-    """Fetch crime incidents from MongoDB and return street segments as GeoJSON for map overlay."""
-    if incidents_collection is None:
-        print("[INFO] MongoDB not connected, using mock street crime data for testing", flush=True)
-        
-        # Mock street crime data for downtown Kitchener area - using actual downtown coordinates
-        mock_street_data = [
-            {
-                "street_name": "KING ST W",
-                "incident_count": 3,
-                "crime_types": ["Theft", "Vandalism"],
-                "recent_incidents": [
-                    {"call_type": "Theft", "formatted_date": "August 18, 2025", "formatted_time": "1:00 PM"},
-                    {"call_type": "Vandalism", "formatted_date": "August 20, 2025", "formatted_time": "6:45 PM"}
-                ],
-                # King St W downtown core - main commercial strip
-                "coordinates": [
-                    [-80.4928, 43.4508], [-80.4940, 43.4508], [-80.4952, 43.4508], 
-                    [-80.4964, 43.4508], [-80.4976, 43.4508], [-80.4988, 43.4508]
-                ]
-            },
-            {
-                "street_name": "WEBER ST N",
-                "incident_count": 2,
-                "crime_types": ["Assault", "Break and Enter"],
-                "recent_incidents": [
-                    {"call_type": "Assault", "formatted_date": "August 22, 2025", "formatted_time": "10:30 PM"},
-                    {"call_type": "Break and Enter", "formatted_date": "August 25, 2025", "formatted_time": "3:15 AM"}
-                ],
-                # Weber St N - major north-south arterial
-                "coordinates": [
-                    [-80.4928, 43.4508], [-80.4928, 43.4520], [-80.4928, 43.4532], 
-                    [-80.4928, 43.4544], [-80.4928, 43.4556], [-80.4928, 43.4568]
-                ]
-            },
-            {
-                "street_name": "UNIVERSITY AVE W",
-                "incident_count": 1,
-                "crime_types": ["Theft"],
-                "recent_incidents": [
-                    {"call_type": "Theft", "formatted_date": "August 28, 2025", "formatted_time": "2:20 PM"}
-                ],
-                # University Ave W in Waterloo - near UW campus
-                "coordinates": [
-                    [-80.5400, 43.4723], [-80.5420, 43.4723], [-80.5440, 43.4723], 
-                    [-80.5460, 43.4723], [-80.5480, 43.4723], [-80.5500, 43.4723]
-                ]
-            },
-            {
-                "street_name": "VICTORIA ST N",
-                "incident_count": 4,
-                "crime_types": ["Vandalism", "Theft", "Assault"],
-                "recent_incidents": [
-                    {"call_type": "Assault", "formatted_date": "September 1, 2025", "formatted_time": "11:15 PM"},
-                    {"call_type": "Theft", "formatted_date": "September 3, 2025", "formatted_time": "4:30 PM"},
-                    {"call_type": "Vandalism", "formatted_date": "September 5, 2025", "formatted_time": "8:45 PM"}
-                ],
-                # Victoria St N downtown - parallel to Weber
-                "coordinates": [
-                    [-80.4900, 43.4508], [-80.4900, 43.4520], [-80.4900, 43.4532], 
-                    [-80.4900, 43.4544], [-80.4900, 43.4556], [-80.4900, 43.4568]
-                ]
-            }
-        ]
-        
-        features = []
-        for street_data in mock_street_data:
-            feature = {
-                "type": "Feature",
-                "geometry": {
-                    "type": "LineString",
-                    "coordinates": street_data["coordinates"]
-                },
-                "properties": {
-                    "street_name": street_data["street_name"],
-                    "incident_count": street_data["incident_count"],
-                    "crime_types": street_data["crime_types"],
-                    "recent_incidents": street_data["recent_incidents"],
-                    "incident_type": "street_crime"
-                }
-            }
-            features.append(feature)
-        
-        print(f"[INFO] Returning {len(features)} mock street segments with crime data", flush=True)
-        
-        return jsonify({
-            "type": "FeatureCollection", 
-            "features": features
-        })
-    
-    # MongoDB code - aggregate incidents by street and create street segments
+def format_date(date_str):
+    """Format date string for display"""
+    if not date_str:
+        return "Unknown"
     try:
-        print("[INFO] Connecting to MongoDB to fetch crime incidents", flush=True)
+        # Handle different date formats
+        if isinstance(date_str, str):
+            # Try parsing common date formats
+            from datetime import datetime
+            for fmt in ['%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%Y-%m-%d %H:%M:%S']:
+                try:
+                    dt = datetime.strptime(date_str, fmt)
+                    return dt.strftime('%Y-%m-%d')
+                except ValueError:
+                    continue
+        return str(date_str)
+    except Exception:
+        return "Unknown"
+
+def format_time(time_str):
+    """Format time string for display"""
+    if not time_str:
+        return "Unknown"
+    try:
+        # Handle different time formats
+        if isinstance(time_str, str):
+            from datetime import datetime
+            for fmt in ['%H:%M:%S', '%H:%M', '%I:%M %p', '%I:%M:%S %p']:
+                try:
+                    dt = datetime.strptime(time_str, fmt)
+                    return dt.strftime('%H:%M')
+                except ValueError:
+                    continue
+        return str(time_str)
+    except Exception:
+        return "Unknown"
+
+@app.route('/crime-data')
+def get_crime_data():
+    """Get crime data aggregated by street for frontend Mapbox vector tile matching"""
+    if incidents_collection is None:
+        print("[WARN] MongoDB not connected", flush=True)
+        return jsonify({"streets": []})
+    
+    try:
+        print(f"[DEBUG] Fetching crime data from MongoDB...")
         
-        # Get all incidents from MongoDB
-        incidents = list(incidents_collection.find({}).limit(2000))  # Increase limit to get more data
-        print(f"[INFO] Found {len(incidents)} incidents in MongoDB", flush=True)
+        # Get all incidents from the collection
+        incidents = list(incidents_collection.find())
+        print(f"[DEBUG] Found {len(incidents)} total incidents")
+        
+        if not incidents:
+            print("[DEBUG] No incidents found in database")
+            return jsonify({"streets": []})
         
         # Group incidents by street name
-        street_incidents = {}
+        street_data = {}
         
         for incident in incidents:
-            location_text = incident.get("location", "").strip().upper()
-            if not location_text:
+            location = incident.get('location', '')
+            if not location:
                 continue
-            
-            # Extract street name from location (remove house numbers, etc.)
-            # Look for common street patterns
-            street_name = None
-            
-            # Try to extract street name from various formats
-            if " ST " in location_text or location_text.endswith(" ST"):
-                street_name = location_text.split(" BLOCK ")[0] if " BLOCK " in location_text else location_text
-                street_name = street_name.replace(" BLOCK", "").strip()
-            elif " AVE " in location_text or location_text.endswith(" AVE"):
-                street_name = location_text.split(" BLOCK ")[0] if " BLOCK " in location_text else location_text
-                street_name = street_name.replace(" BLOCK", "").strip()
-            elif " RD " in location_text or location_text.endswith(" RD"):
-                street_name = location_text.split(" BLOCK ")[0] if " BLOCK " in location_text else location_text
-                street_name = street_name.replace(" BLOCK", "").strip()
-            elif " DR " in location_text or location_text.endswith(" DR"):
-                street_name = location_text.split(" BLOCK ")[0] if " BLOCK " in location_text else location_text
-                street_name = street_name.replace(" BLOCK", "").strip()
-            else:
-                # Try to extract from other formats
-                parts = location_text.split()
-                if len(parts) >= 2:
-                    # Remove potential house numbers from the beginning
-                    if parts[0].isdigit():
-                        street_name = " ".join(parts[1:])
-                    else:
-                        street_name = location_text
-            
+                
+            # Parse street name (everything before the comma)
+            street_name = location.split(',')[0].strip()
             if not street_name:
                 continue
                 
-            # Clean up street name
-            street_name = street_name.replace("BLOCK OF ", "").replace(" BLOCK", "").strip()
+            print(f"[DEBUG] Processing incident on street: {street_name}")
             
-            if street_name not in street_incidents:
-                street_incidents[street_name] = []
-            
-            # Format incident data
-            incident_date = incident.get("incident_date")
-            formatted_date = incident_date.strftime("%B %d, %Y") if incident_date else "Unknown date"
-            formatted_time = incident_date.strftime("%I:%M %p") if incident_date else "Unknown time"
-            
-            street_incidents[street_name].append({
-                "call_type": incident.get("call_type", "Unknown"),
-                "formatted_date": formatted_date,
-                "formatted_time": formatted_time,
-                "location": incident.get("location", "")
-            })
-        
-        print(f"[INFO] Grouped incidents into {len(street_incidents)} unique streets", flush=True)
-        
-        # Debug: Print all street names being mapped
-        street_names = list(street_incidents.keys())
-        print(f"\n🏘️  STREETS BEING MAPPED FROM YOUR MONGODB:", flush=True)
-        print(f"📊 Total: {len(street_incidents)} unique streets", flush=True)
-        print("🚨 Top streets by incident count:", flush=True)
-        
-        # Sort by incident count and show top streets
-        sorted_streets = sorted(street_incidents.items(), key=lambda x: len(x[1]), reverse=True)
-        for i, (street_name, incidents_list) in enumerate(sorted_streets[:15]):
-            print(f"  {i+1:2d}. {street_name:<30} ({len(incidents_list)} incidents)", flush=True)
-        
-        if len(sorted_streets) > 15:
-            print(f"  ... and {len(sorted_streets) - 15} more streets", flush=True)
-        
-        print(f"\n📋 All {len(street_incidents)} street names:", flush=True)
-        for i, street_name in enumerate(street_names, 1):
-            print(f"  {i:3d}. {street_name}", flush=True)
-        print("", flush=True)
-        
-        # Create street segment features
-        features = []
-        
-        for street_name, incidents_list in street_incidents.items():
-            if len(incidents_list) == 0:
-                continue
-                
-            # Get unique crime types for this street
-            crime_types = list(set([inc["call_type"] for inc in incidents_list if inc["call_type"] != "Unknown"]))
-            
-            # Try to geocode the street to get coordinates
-            try:
-                # Geocode street name to get a base coordinate
-                base_lat, base_lon = _mapbox_geocode_one(f"{street_name}, Kitchener, ON, Canada")
-                
-                # Create a simple street segment (you can enhance this with actual street geometry later)
-                # For now, create a small line segment around the geocoded point
-                if "ST" in street_name and ("N" in street_name or "S" in street_name):
-                    # North-South street - create vertical line
-                    coordinates = [
-                        [base_lon, base_lat - 0.001],
-                        [base_lon, base_lat],
-                        [base_lon, base_lat + 0.001]
-                    ]
-                elif "AVE" in street_name and ("E" in street_name or "W" in street_name):
-                    # East-West street - create horizontal line
-                    coordinates = [
-                        [base_lon - 0.002, base_lat],
-                        [base_lon, base_lat],
-                        [base_lon + 0.002, base_lat]
-                    ]
-                else:
-                    # Default to horizontal line
-                    coordinates = [
-                        [base_lon - 0.001, base_lat],
-                        [base_lon, base_lat],
-                        [base_lon + 0.001, base_lat]
-                    ]
-                
-                # Create street segment feature
-                feature = {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "LineString",
-                        "coordinates": coordinates
-                    },
-                    "properties": {
-                        "incident_id": incident.get("incident_id", ""),
-                        "call_type": incident.get("call_type", "Unknown"),
-                        "location": location_text,
-                        "title_line": incident.get("title_line", ""),
-                        "formatted_date": formatted_date,
-                        "formatted_time": formatted_time,
-                        "incident_type": "crime"
-                    }
+            if street_name not in street_data:
+                street_data[street_name] = {
+                    'street_name': street_name,
+                    'incidents': [],
+                    'crime_types': set(),
+                    'incident_count': 0
                 }
-                features.append(feature)
-                
-            except Exception as e:
-                print(f"[WARN] Failed to geocode location '{location_text}': {e}", flush=True)
-                continue
+            
+            # Add incident data
+            incident_data = {
+                'incident_id': incident.get('incident_id', ''),
+                'location': location,
+                'call_type': incident.get('call_type', ''),
+                'title_line': incident.get('title_line', ''),
+                'formatted_date': format_date(incident.get('date')),
+                'formatted_time': format_time(incident.get('time'))
+            }
+            
+            street_data[street_name]['incidents'].append(incident_data)
+            street_data[street_name]['incident_count'] += 1
+            
+            # Add crime type to set (will be converted to list later)
+            call_type = incident.get('call_type', '').strip()
+            if call_type:
+                street_data[street_name]['crime_types'].add(call_type)
         
-        return jsonify({
-            "type": "FeatureCollection", 
-            "features": features
-        })
+        # Convert to final format for frontend
+        streets = []
+        for street_name, data in street_data.items():
+            # Sort incidents by date (most recent first)
+            incidents_sorted = sorted(data['incidents'], 
+                                    key=lambda x: (x['formatted_date'], x['formatted_time']), 
+                                    reverse=True)
+            
+            street_info = {
+                'street_name': street_name,
+                'incident_count': data['incident_count'],
+                'crime_types': list(data['crime_types']),
+                'recent_incidents': incidents_sorted
+            }
+            streets.append(street_info)
+            
+        print(f"[DEBUG] Processed {len(streets)} streets with crime data")
+        for street in streets[:5]:  # Debug first 5 streets
+            print(f"[DEBUG] Street: {street['street_name']}, Incidents: {street['incident_count']}")
+        
+        return jsonify({"streets": streets})
         
     except Exception as e:
-        print(f"[ERROR] Crime data fetch failed: {e}", flush=True)
+        print(f"[ERROR] Error fetching crime data: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/camera-data')
+def get_camera_data():
+    """Get camera data from cameras collection for intersection mapping"""
+    if mongo_client is None:
+        print("[WARN] MongoDB not connected", flush=True)
+        return jsonify({"cameras": []})
+    
+    try:
+        print(f"[DEBUG] Fetching camera data from MongoDB...")
+        
+        # Get cameras collection
+        cameras_collection = mongo_db.cameras
+        
+        # Get all cameras from the cameras collection
+        cameras = list(cameras_collection.find())
+        print(f"[DEBUG] Found {len(cameras)} total cameras")
+        
+        if not cameras:
+            print("[DEBUG] No cameras found in database")
+            return jsonify({"cameras": []})
+        
+        # Process cameras for frontend
+        camera_data = []
+        
+        for camera in cameras:
+            primary_road = camera.get('primary_road', '').strip()
+            cross_street = camera.get('cross_street_or_notes', '').strip()
+            city = camera.get('city', '').strip()
+            camera_type = camera.get('camera_type', '').strip()
+            
+            if not primary_road:
+                continue
+                
+            print(f"[DEBUG] Processing camera: {camera_type} at {primary_road} & {cross_street}")
+            
+            camera_info = {
+                'id': str(camera.get('_id', '')),
+                'primary_road': primary_road,
+                'cross_street': cross_street,
+                'city': city,
+                'camera_type': camera_type,
+                'intersection': f"{primary_road} & {cross_street}" if cross_street else primary_road
+            }
+            
+            camera_data.append(camera_info)
+            
+        print(f"[DEBUG] Processed {len(camera_data)} cameras")
+        for camera in camera_data[:5]:  # Debug first 5 cameras
+            print(f"[DEBUG] Camera: {camera['camera_type']} at {camera['intersection']}")
+        
+        return jsonify({"cameras": camera_data})
+        
+    except Exception as e:
+        print(f"[ERROR] Error fetching camera data: {e}")
         return jsonify({"error": str(e)}), 500
 
 # -------------------- Main ---------------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5500, debug=True)
+    app.run(host="0.0.0.0", port=5002, debug=True)
