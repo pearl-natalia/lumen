@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Luma - Safe Walking Paths</title>
-  <link rel="icon" type="image/png" href="/static/logo.png?v=1">
-  <link rel="apple-touch-icon" href="/static/logo.png?v=1">
+  <link rel="icon" type="image/png" href="logo.png?v=1">
+  <link rel="apple-touch-icon" href="logo.png?v=1">
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.css" rel="stylesheet" />
 
@@ -241,6 +241,11 @@
     .mapboxgl-ctrl-zoom-in, .mapboxgl-ctrl-zoom-out {
       width:34px !important; height:34px !important;
     }
+    
+    /* Match geolocate button width */
+    .mapboxgl-ctrl-geolocate {
+      width:34px !important; height:34px !important;
+    }
 
     /* New Sidebar Styling */
     .header-section {
@@ -341,6 +346,62 @@
     }
     .find-path-btn:disabled {
       opacity: 0.5; cursor: not-allowed;
+    }
+
+    .layer-btn {
+      width: 100% !important; 
+      background: rgba(255, 255, 255, 0.05) !important; 
+      border: 2px solid #22c55e !important;
+      color: #22c55e !important; 
+      padding: 12px 16px !important; 
+      border-radius: 8px !important; 
+      font-size: 14px !important; 
+      font-weight: 600 !important;
+      display: flex !important; 
+      align-items: center !important; 
+      justify-content: center !important; 
+      gap: 8px !important;
+      cursor: pointer !important; 
+      transition: all 0.2s ease !important; 
+      margin-bottom: 8px !important;
+    }
+    .layer-btn:hover:not(:disabled) {
+      background: rgba(34, 197, 94, 0.1) !important; 
+      border-color: #16a34a !important;
+    }
+    .layer-btn.active {
+      background: rgba(34, 197, 94, 0.15) !important; 
+      border-color: #16a34a !important;
+      box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.3) !important;
+    }
+    .layer-btn:disabled {
+      opacity: 0.5 !important; 
+      cursor: not-allowed !important;
+    }
+    .layer-icon {
+      font-size: 16px !important;
+    }
+
+    /* Static User Location Marker - No Animation */
+    .user-location-marker {
+      width: 16px;
+      height: 16px;
+      background: #3b82f6;
+      border: 2px solid #fff;
+      border-radius: 50%;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+
+    /* Remove white background from camera popups */
+    .camera-popup .mapboxgl-popup-content {
+      background: transparent !important;
+      box-shadow: none !important;
+      padding: 0 !important;
+      border-radius: 0 !important;
+    }
+    
+    .camera-popup .mapboxgl-popup-tip {
+      display: none !important;
     }
 
     #results-section {
@@ -518,7 +579,7 @@
       </button>
     </div>
 
-    <!-- Crime Layer Section -->
+    <!-- Safety Layers Section -->
     <div class="section">
       <h3>Safety Layers</h3>
       
@@ -553,6 +614,8 @@
     const markers = { start: null, end: null };
     let userLoc = null;
     let crimeDataLoaded = false;
+    let speedCamDataLoaded = false;
+    let trafficCamDataLoaded = false;
     let crimeLayerVisible = false;
     let userLocationMarker = null;
 
@@ -594,9 +657,14 @@
       }
     }
 
+    // Configuration - can be easily changed for different environments
+    const API_BASE_URL = window.location.hostname === 'localhost' 
+      ? 'http://localhost:5002' 
+      : window.location.origin;
+
     async function init() {
       try {
-        const t = await fetch("/token"); const { token } = await t.json();
+        const t = await fetch(`${API_BASE_URL}/token`); const { token } = await t.json();
         if (!token) throw new Error("Missing MAPBOX_TOKEN");
         mapboxgl.accessToken = token;
 
@@ -612,15 +680,20 @@
         });
 
         map.addControl(new mapboxgl.NavigationControl({ showCompass: false, showZoom: true, visualizePitch: true }), "top-right");
+        map.addControl(new mapboxgl.GeolocateControl({
+          positionOptions: { enableHighAccuracy: true },
+          trackUserLocation: false,
+          showUserHeading: false
+        }), "top-right");
         map.addControl(new PitchToggle({ pitch: 60, bearing: -20 }), "top-right");
 
         map.on("load", () => {
           add3DScene();        // terrain + sky + buildings
           addCampusTheme();    // greener grass & warm buildings
-          ensureLayers(); updateVisibility();
+          ensureLayers();
           goBtn.disabled = false;
           
-          // Add user location marker if available
+          // Add static user location marker if available
           if (userLoc) {
             addUserLocationMarker([userLoc.lng, userLoc.lat]);
           }
@@ -900,41 +973,77 @@
       });
     }
 
-    // Crime layer functionality
+    // Crime layer functionality using Mapbox vector tiles
     async function loadCrimeData() {
       if (crimeDataLoaded) return;
       
       try {
         statusEl.textContent = "Loading crime data...";
-        console.log('[DEBUG] Fetching crime data from /crime-data');
+        console.log('[DEBUG] Fetching street crime data from /crime-data');
         
-        const response = await fetch('/crime-data');
+        const response = await fetch(`${API_BASE_URL}/crime-data`);
         if (!response.ok) throw new Error('Failed to fetch crime data');
         
-        const crimeData = await response.json();
-        console.log('[DEBUG] Crime data received:', crimeData);
-        console.log('[DEBUG] Number of features:', crimeData.features?.length || 0);
+        const streetData = await response.json();
+        console.log('[DEBUG] Street data received:', streetData);
+        console.log('[DEBUG] Number of streets:', streetData.streets?.length || 0);
         
-        // Add crime data source
-        if (!map.getSource('crime-data')) {
-          map.addSource('crime-data', {
-            type: 'geojson',
-            data: crimeData
-          });
-          console.log('[DEBUG] Crime data source added to map');
+        if (!streetData.streets || streetData.streets.length === 0) {
+          throw new Error('No street data received');
         }
         
-        // Add crime streets layer (red lines)
+        // Create a map of street names to crime data for quick lookup
+        const streetCrimeMap = {};
+        streetData.streets.forEach(street => {
+          // Normalize street name for matching
+          const normalizedName = street.street_name.toUpperCase().trim();
+          streetCrimeMap[normalizedName] = street;
+        });
+        
+        console.log('[DEBUG] Created crime data map for', Object.keys(streetCrimeMap).length, 'streets');
+        
+        // Add Mapbox Streets vector source if not already added
+        if (!map.getSource('mapbox-streets')) {
+          map.addSource('mapbox-streets', {
+            type: 'vector',
+            url: 'mapbox://mapbox.mapbox-streets-v8'
+          });
+          console.log('[DEBUG] Added Mapbox Streets vector source');
+        }
+        
+        // Create expression to highlight streets with crime data
+        const streetNameExpression = ['case'];
+        Object.keys(streetCrimeMap).forEach(streetName => {
+          // Add condition for this street name
+          streetNameExpression.push(['==', ['upcase', ['get', 'name']], streetName]);
+          streetNameExpression.push('#f87171'); // Lighter red color for crime streets
+        });
+        streetNameExpression.push('rgba(0,0,0,0)'); // Transparent for non-crime streets
+        
+        // Add crime streets layer using Mapbox Streets data
         if (!map.getLayer('crime-streets')) {
           map.addLayer({
             id: 'crime-streets',
             type: 'line',
-            source: 'crime-data',
+            source: 'mapbox-streets',
+            'source-layer': 'road',
+            filter: [
+              'all',
+              ['==', ['geometry-type'], 'LineString'],
+              ['in', ['upcase', ['get', 'name']], ['literal', Object.keys(streetCrimeMap)]],
+              ['in', ['get', 'class'], ['literal', ['primary', 'secondary', 'tertiary', 'trunk', 'motorway']]]
+            ],
             paint: {
-              'line-width': 8,
-              'line-color': '#dc2626',
-              'line-opacity': 0.8,
-              'line-blur': 1
+              'line-width': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                10, 2,
+                16, 4,
+                20, 8
+              ],
+              'line-color': streetNameExpression,
+              'line-opacity': 0.8
             },
             layout: {
               'visibility': 'none',
@@ -942,10 +1051,13 @@
               'line-cap': 'round'
             }
           });
-          console.log('[DEBUG] Crime streets layer added to map');
+          console.log('[DEBUG] Crime streets layer added using Mapbox Streets vector tiles');
         }
         
-        // Setup crime layer hover tooltips after a short delay to ensure layer is ready
+        // Store street crime data globally for hover tooltips
+        window.streetCrimeData = streetCrimeMap;
+        
+        // Setup crime layer hover tooltips
         setTimeout(() => {
           setupCrimeHoverTooltips();
           console.log('[DEBUG] Crime hover tooltips setup complete');
@@ -953,7 +1065,7 @@
         
         crimeDataLoaded = true;
         statusEl.textContent = "";
-        console.log('[DEBUG] Crime data loading complete');
+        console.log('[DEBUG] Crime data loading complete with', Object.keys(streetCrimeMap).length, 'streets');
         
       } catch (error) {
         console.error('Error loading crime data:', error);
@@ -963,7 +1075,7 @@
     }
 
     function toggleCrimeLayer() {
-      const crimeBtn = document.getElementById('btn-crime-layer');
+      const crimeBtn = document.getElementById('crimeBtn');
       console.log('[DEBUG] Crime layer toggle clicked');
       console.log('[DEBUG] crimeDataLoaded:', crimeDataLoaded);
       console.log('[DEBUG] crimeLayerVisible:', crimeLayerVisible);
@@ -987,6 +1099,23 @@
       }
     }
 
+    // Cameras layer toggle (both speed and traffic)
+    const camerasBtn = document.getElementById('camerasBtn');
+    if (camerasBtn) {
+      camerasBtn.addEventListener('click', async () => {
+        await loadCameraData();
+        const isVisible = map.getLayoutProperty('cameras', 'visibility') === 'visible';
+        const newVisibility = isVisible ? 'none' : 'visible';
+        
+        // Toggle both camera circles and text labels
+        map.setLayoutProperty('cameras', 'visibility', newVisibility);
+        map.setLayoutProperty('cameras-labels', 'visibility', newVisibility);
+        
+        camerasBtn.classList.toggle('active', !isVisible);
+        console.log('[DEBUG] Toggled cameras layer:', !isVisible ? 'visible' : 'hidden');
+      });
+    }
+
     function setupCrimeHoverTooltips() {
       console.log('[DEBUG] Setting up crime hover tooltips');
       
@@ -1006,7 +1135,7 @@
       const crimeTooltip = document.createElement('div');
       crimeTooltip.className = 'crime-tooltip';
       crimeTooltip.style.cssText = `
-        position: absolute; z-index: 1000; pointer-events: none;
+        position: absolute; z-index: 1000; pointer-events: auto;
         background: rgba(220, 38, 38, 0.95); color: white; padding: 12px 16px;
         border-radius: 8px; font-size: 14px; font-weight: 500;
         font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
@@ -1018,23 +1147,17 @@
       document.body.appendChild(crimeTooltip);
       console.log('[DEBUG] Crime tooltip element created and added to DOM');
 
-      // Add hover events for crime streets layer
-      map.on('mouseenter', 'crime-streets', (e) => {
-        console.log('[DEBUG] Mouse entered crime street');
-        map.getCanvas().style.cursor = 'pointer';
-        
-        const feature = e.features[0];
-        const props = feature.properties;
-        console.log('[DEBUG] Feature properties:', props);
-        
-        // Parse recent incidents from the properties
-        const recentIncidents = props.recent_incidents || [];
-        const crimeTypes = props.crime_types || [];
-        const incidentCount = props.incident_count || 0;
+      let isTooltipPinned = false;
+      let pinnedStreetName = null;
+      
+      function showCrimeTooltip(streetName, crimeData, x, y) {
+        const recentIncidents = crimeData.recent_incidents || [];
+        const crimeTypes = crimeData.crime_types || [];
+        const incidentCount = crimeData.incident_count || 0;
         
         // Build tooltip content for street-level crime data
         let tooltipContent = `
-          <div style="font-weight: 600; margin-bottom: 8px; font-size: 16px;">${props.street_name}</div>
+          <div style="font-weight: 600; margin-bottom: 8px; font-size: 16px;">${streetName}</div>
           <div style="margin-bottom: 6px; color: #fca5a5;">
             ${incidentCount} incident${incidentCount !== 1 ? 's' : ''} reported
           </div>
@@ -1049,45 +1172,389 @@
           `;
         }
         
-        // Show recent incidents
+        // Show recent incidents with all requested fields
         if (recentIncidents.length > 0) {
-          tooltipContent += `<div style="margin-bottom: 4px;"><strong>Recent incidents:</strong></div>`;
-          recentIncidents.slice(0, 2).forEach(incident => {
+          tooltipContent += `<div style="margin-bottom: 6px;"><strong>Recent incidents:</strong></div>`;
+          
+          // Show first 3 incidents
+          const visibleIncidents = recentIncidents.slice(0, 3);
+          const hiddenIncidents = recentIncidents.slice(3);
+          
+          visibleIncidents.forEach(incident => {
+            const callType = incident.call_type && incident.call_type.trim() ? incident.call_type : 'General Crime';
             tooltipContent += `
-              <div style="margin-bottom: 4px; padding-left: 8px; font-size: 12px; opacity: 0.9;">
-                • ${incident.call_type} - ${incident.formatted_date}
+              <div style="margin-bottom: 8px; padding: 6px; background: rgba(0,0,0,0.2); border-radius: 4px; font-size: 11px;">
+                <div style="font-weight: 600; color: #fca5a5; margin-bottom: 2px;">${callType}</div>
+                <div style="margin-bottom: 2px;">${incident.formatted_date} at ${incident.formatted_time}</div>
+                <div style="margin-bottom: 2px; opacity: 0.9;">${incident.location}</div>
+                ${incident.title_line ? `<div style="font-size: 10px; opacity: 0.8;">${incident.title_line}</div>` : ''}
               </div>
             `;
           });
           
-          if (recentIncidents.length > 2) {
+          // Add expandable section for remaining incidents
+          if (hiddenIncidents.length > 0) {
             tooltipContent += `
-              <div style="font-size: 11px; opacity: 0.7; padding-left: 8px;">
-                +${recentIncidents.length - 2} more incident${recentIncidents.length - 2 !== 1 ? 's' : ''}
-              </div>
+              <button class="expand-incidents-btn" data-expanded="false" style="
+                background: rgba(220, 38, 38, 0.2);
+                border: 1px solid #dc2626;
+                color: #fca5a5;
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-size: 10px;
+                cursor: pointer;
+                width: 100%;
+                margin-top: 4px;
+                transition: background 0.2s;
+              ">
+                +${hiddenIncidents.length} more incident${hiddenIncidents.length !== 1 ? 's' : ''}
+              </button>
+              <div class="hidden-incidents" style="display: none;">
             `;
+            
+            hiddenIncidents.forEach(incident => {
+              const callType = incident.call_type && incident.call_type.trim() ? incident.call_type : 'General Crime';
+              tooltipContent += `
+                <div style="margin-bottom: 8px; padding: 6px; background: rgba(0,0,0,0.2); border-radius: 4px; font-size: 11px;">
+                  <div style="font-weight: 600; color: #fca5a5; margin-bottom: 2px;">${callType}</div>
+                  <div style="margin-bottom: 2px;">${incident.formatted_date} at ${incident.formatted_time}</div>
+                  <div style="margin-bottom: 2px; opacity: 0.9;">${incident.location}</div>
+                  ${incident.title_line ? `<div style="font-size: 10px; opacity: 0.8;">${incident.title_line}</div>` : ''}
+                </div>
+              `;
+            });
+            
+            tooltipContent += `</div>`;
           }
         }
         
+
+        
         crimeTooltip.innerHTML = tooltipContent;
         crimeTooltip.style.display = 'block';
-        console.log('[DEBUG] Tooltip displayed');
+        crimeTooltip.style.left = x + 15 + 'px';
+        crimeTooltip.style.top = y - 15 + 'px';
+        
+        // Add event listener for expand button
+        const expandBtn = crimeTooltip.querySelector('.expand-incidents-btn');
+        if (expandBtn) {
+          const hiddenSection = crimeTooltip.querySelector('.hidden-incidents');
+          const hiddenCount = recentIncidents.length - 3;
+          
+          expandBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            
+            console.log('[DEBUG] Expand button clicked');
+            
+            const isExpanded = expandBtn.getAttribute('data-expanded') === 'true';
+            
+            if (isExpanded) {
+              hiddenSection.style.display = 'none';
+              expandBtn.setAttribute('data-expanded', 'false');
+              expandBtn.innerHTML = `+${hiddenCount} more incident${hiddenCount !== 1 ? 's' : ''}`;
+              console.log('[DEBUG] Collapsed incidents');
+            } else {
+              hiddenSection.style.display = 'block';
+              expandBtn.setAttribute('data-expanded', 'true');
+              expandBtn.innerHTML = 'Show less';
+              console.log('[DEBUG] Expanded incidents');
+            }
+            
+            return false;
+          });
+          
+          // Add hover effects
+          expandBtn.addEventListener('mouseenter', () => {
+            expandBtn.style.background = 'rgba(220, 38, 38, 0.3)';
+          });
+          
+          expandBtn.addEventListener('mouseleave', () => {
+            expandBtn.style.background = 'rgba(220, 38, 38, 0.2)';
+          });
+        }
+      }
+      
+      // Add click event for pinning tooltips
+      map.on('click', 'crime-streets', (e) => {
+        console.log('[DEBUG] Crime street clicked');
+        
+        const feature = e.features[0];
+        const streetName = feature.properties.name;
+        const normalizedStreetName = streetName ? streetName.toUpperCase().trim() : '';
+        const crimeData = window.streetCrimeData ? window.streetCrimeData[normalizedStreetName] : null;
+        
+        if (crimeData) {
+          isTooltipPinned = true;
+          pinnedStreetName = normalizedStreetName;
+          showCrimeTooltip(streetName, crimeData, e.point.x, e.point.y);
+          console.log('[DEBUG] Tooltip pinned for', streetName);
+        }
+      });
+      
+      // Add hover events for crime streets layer
+      map.on('mouseenter', 'crime-streets', (e) => {
+        console.log('[DEBUG] Mouse entered crime street');
+        map.getCanvas().style.cursor = 'pointer';
+        
+        // Don't show hover tooltip if one is already pinned
+        if (isTooltipPinned) return;
+        
+        const feature = e.features[0];
+        const streetName = feature.properties.name;
+        console.log('[DEBUG] Street name from vector tile:', streetName);
+        
+        // Look up crime data for this street
+        const normalizedStreetName = streetName ? streetName.toUpperCase().trim() : '';
+        const crimeData = window.streetCrimeData ? window.streetCrimeData[normalizedStreetName] : null;
+        
+        console.log('[DEBUG] Crime data lookup for', normalizedStreetName, ':', crimeData);
+        
+        if (!crimeData) {
+          console.log('[DEBUG] No crime data found for street:', normalizedStreetName);
+          return;
+        }
+        
+        showCrimeTooltip(streetName, crimeData, e.point.x, e.point.y);
+        console.log('[DEBUG] Tooltip displayed for', streetName);
       });
 
       map.on('mouseleave', 'crime-streets', () => {
         console.log('[DEBUG] Mouse left crime street');
         map.getCanvas().style.cursor = '';
-        crimeTooltip.style.display = 'none';
+        
+        // Don't hide tooltip if it's pinned
+        if (!isTooltipPinned) {
+          crimeTooltip.style.display = 'none';
+        }
       });
 
       map.on('mousemove', 'crime-streets', (e) => {
-        if (crimeTooltip.style.display === 'block') {
-          crimeTooltip.style.left = e.point.x + 'px';
-          crimeTooltip.style.top = e.point.y + 'px';
+        // Don't update position if tooltip is pinned
+        if (!isTooltipPinned) {
+          crimeTooltip.style.left = e.point.x + 15 + 'px';
+          crimeTooltip.style.top = e.point.y - 15 + 'px';
         }
       });
       
-      console.log('[DEBUG] Crime hover event listeners attached');
+      // Simple click handler to unpin tooltip when clicking outside
+      map.on('click', (e) => {
+        // Don't unpin if we're not pinned
+        if (!isTooltipPinned) return;
+        
+        // Check if click was on a crime street
+        const features = map.queryRenderedFeatures(e.point, { layers: ['crime-streets'] });
+        
+        if (features.length === 0) {
+          // Clicked elsewhere on map, unpin tooltip
+          isTooltipPinned = false;
+          pinnedStreetName = null;
+          crimeTooltip.style.display = 'none';
+          console.log('[DEBUG] Tooltip unpinned by map click');
+        }
+      });
+    }
+
+    // Camera layer functionality (both speed and traffic)
+    async function loadCameraData() {
+      if (speedCamDataLoaded && trafficCamDataLoaded) return;
+      
+      try {
+        statusEl.textContent = "Loading camera data...";
+        console.log('[DEBUG] Fetching camera data from /camera-data');
+        
+        const response = await fetch(`${API_BASE_URL}/camera-data`);
+        if (!response.ok) throw new Error('Failed to fetch camera data');
+        
+        const cameraData = await response.json();
+        console.log('[DEBUG] Camera data received:', cameraData);
+        
+        if (cameraData.cameras.length > 0) {
+          await createCameraLayer('cameras', cameraData.cameras, '#22c55e'); // Green to match theme
+        }
+        
+        speedCamDataLoaded = true;
+        trafficCamDataLoaded = true;
+        statusEl.textContent = "";
+        console.log('[DEBUG] Camera data loading complete');
+        
+      } catch (error) {
+        console.error('Error loading camera data:', error);
+        statusEl.textContent = "Failed to load camera data";
+      }
+    }
+
+    // Create camera layer using Mapbox Geocoding API to find intersections
+    async function createCameraLayer(layerId, cameras, color) {
+      try {
+        console.log(`[DEBUG] Creating ${layerId} with ${cameras.length} cameras`);
+        
+        // Geocode intersections to get coordinates
+        const features = [];
+        
+        let successCount = 0;
+        let failCount = 0;
+        
+        for (const camera of cameras) {
+          try {
+            // Create search query for intersection
+            const query = `${camera.intersection}, ${camera.city}`;
+            console.log(`[DEBUG] Geocoding ${successCount + failCount + 1}/${cameras.length}: ${query}`);
+            
+            // Use Mapbox Geocoding API
+            const geocodeResponse = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${mapboxgl.accessToken}&limit=1`);
+            
+            if (geocodeResponse.ok) {
+              const geocodeData = await geocodeResponse.json();
+              
+              if (geocodeData.features && geocodeData.features.length > 0) {
+                const [lng, lat] = geocodeData.features[0].center;
+                
+                features.push({
+                  type: 'Feature',
+                  geometry: {
+                    type: 'Point',
+                    coordinates: [lng, lat]
+                  },
+                  properties: {
+                    id: camera.id,
+                    primary_road: camera.primary_road,
+                    cross_street: camera.cross_street,
+                    city: camera.city,
+                    camera_type: camera.camera_type,
+                    intersection: camera.intersection
+                  }
+                });
+                
+                successCount++;
+                console.log(`[SUCCESS] Geocoded ${camera.intersection}: [${lng}, ${lat}]`);
+              } else {
+                failCount++;
+                console.warn(`[FAIL] No geocoding results for: ${query}`);
+              }
+            } else {
+              failCount++;
+              console.error(`[ERROR] Geocoding API failed for: ${query}, Status: ${geocodeResponse.status}`);
+            }
+            
+            // Add small delay to avoid rate limiting
+            await new Promise(resolve => setTimeout(resolve, 150));
+            
+          } catch (error) {
+            failCount++;
+            console.error(`[ERROR] Exception geocoding ${camera.intersection}:`, error);
+          }
+        }
+        
+        console.log(`[SUMMARY] Camera Geocoding Results: ${successCount} success, ${failCount} failed, ${features.length} total features created out of ${cameras.length} cameras`);
+        
+        // Add source and layer to map
+        if (!map.getSource(layerId)) {
+          map.addSource(layerId, {
+            type: 'geojson',
+            data: {
+              type: 'FeatureCollection',
+              features: features
+            }
+          });
+        }
+        
+        if (!map.getLayer(layerId)) {
+          // Add circle layer for camera pins
+          map.addLayer({
+            id: layerId,
+            type: 'circle',
+            source: layerId,
+            paint: {
+              'circle-radius': 12,
+              'circle-color': '#bbf7d0',
+              'circle-stroke-color': color,
+              'circle-stroke-width': 3,
+              'circle-opacity': 1,
+              'circle-stroke-opacity': 0.8
+            },
+            layout: {
+              'visibility': 'none'
+            }
+          });
+          
+          // Add text layer for camera type labels (T for traffic, S for speed)
+          map.addLayer({
+            id: layerId + '-labels',
+            type: 'symbol',
+            source: layerId,
+            layout: {
+              'text-field': ['case',
+                ['==', ['get', 'camera_type'], 'red_light'], 'T',
+                ['==', ['get', 'camera_type'], 'speed'], 'S',
+                '?'
+              ],
+              'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+              'text-size': 12,
+              'text-anchor': 'center',
+              'visibility': 'none'
+            },
+            paint: {
+              'text-color': '#ffffff',
+              'text-halo-color': '#000000',
+              'text-halo-width': 1
+            }
+          });
+          
+          // Add click handler for camera tooltips
+          map.on('click', layerId, (e) => {
+            // Close any existing popups
+            const existingPopups = document.querySelectorAll('.mapboxgl-popup');
+            existingPopups.forEach(popup => popup.remove());
+            
+            const camera = e.features[0].properties;
+            new mapboxgl.Popup({
+              className: 'camera-popup',
+              closeButton: false,
+              closeOnClick: true
+            })
+              .setLngLat(e.lngLat)
+              .setHTML(`
+                <div style="
+                  background: transparent; 
+                  color: white; 
+                  padding: 12px 16px;
+                  border-radius: 8px; 
+                  font-size: 14px; 
+                  font-weight: 500;
+                  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+                  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+                  line-height: 1.4;
+                  min-width: 160px;
+                  border: none;
+                  backdrop-filter: blur(8px);
+                  background: rgba(21, 128, 61, 0.9);
+                ">
+                  <div style="font-weight: 700; margin-bottom: 6px; font-size: 15px; color: #bbf7d0;">
+                    ${camera.camera_type === 'speed' ? '📷 Speed Camera' : '🚦 Traffic Camera'}
+                  </div>
+                  <div style="font-size: 13px; color: white; line-height: 1.3;">
+                    ${camera.intersection}
+                  </div>
+                </div>
+              `)
+              .addTo(map);
+          });
+          
+          // Change cursor on hover
+          map.on('mouseenter', layerId, () => {
+            map.getCanvas().style.cursor = 'pointer';
+          });
+          
+          map.on('mouseleave', layerId, () => {
+            map.getCanvas().style.cursor = '';
+          });
+        }
+        
+      } catch (error) {
+        console.error(`Error creating ${layerId}:`, error);
+      }
     }
 
     // Address enrichment used by externalGeocoder
@@ -1147,7 +1614,7 @@
       };
       
       try {
-        const resp=await fetch("/route",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+        const resp=await fetch(`${API_BASE_URL}/route`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
         const fc=await resp.json();
         if(!resp.ok) throw new Error(fc.error||"Request failed");
         
