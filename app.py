@@ -13,6 +13,7 @@ STATIC_DIR = BASE_DIR / "static"
 
 load_dotenv()                      # load .env first
 MAPBOX_TOKEN = os.getenv("MAPBOX_TOKEN")
+VAPI_PUBLIC_KEY = os.getenv("VAPI_PUBLIC_KEY")
 MONGO_URI = os.getenv("MONGODB_URI")  # Changed from MONGO_URI to MONGODB_URI
 MONGO_DB = os.getenv("MONGO_DB")
 
@@ -88,6 +89,10 @@ def index():
 @app.get("/token")
 def token():
     return jsonify({"token": MAPBOX_TOKEN})
+
+@app.get("/vapi-key")
+def vapi_key():
+    return jsonify({"key": VAPI_PUBLIC_KEY})
 
 @app.get("/healthz")
 def healthz():

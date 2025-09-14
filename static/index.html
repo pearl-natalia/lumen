@@ -13,6 +13,139 @@
   <link rel="stylesheet" href="https://unpkg.com/@mapbox/mapbox-gl-geocoder@5.0.1/dist/mapbox-gl-geocoder.css" />
   <script src="https://unpkg.com/@mapbox/mapbox-gl-geocoder@5.0.1/dist/mapbox-gl-geocoder.min.js"></script>
 
+  <!-- Vapi Voice Assistant -->
+  <script>
+    (function (d, t) {
+      var g = document.createElement(t),
+        s = d.getElementsByTagName(t)[0];
+      g.src = "https://cdn.jsdelivr.net/gh/VapiAI/html-script-tag@latest/dist/assets/index.js";
+      g.defer = true;
+      g.async = true;
+      s.parentNode.insertBefore(g, s);
+
+      g.onload = async function () {
+        // Fetch Vapi API key from server
+        let vapiKey = null;
+        try {
+          const vapiResponse = await fetch("/vapi-key");
+          const vapiData = await vapiResponse.json();
+          console.log('vapi data', vapiData);
+          vapiKey = vapiData.key;
+        } catch (error) {
+          console.warn('🎤 Could not fetch Vapi API key:', error);
+        }
+
+        // Only initialize if we have a valid API key
+        if (!vapiKey) {
+          console.warn('🎤 Vapi API key not available - voice assistant disabled');
+          return;
+        }
+
+        // Assistant configuration
+        const assistant = {
+          model: {
+            provider: "openai",
+            model: "gpt-4o",
+            systemPrompt: "You are a helpful voice assistant for Luma, a safe walking paths app. You can help users with navigation, safety information, and general questions about the app. Keep responses concise and conversational. If users ask about routes or directions, remind them they can use the map interface to plan their paths.",
+          },
+          voice: {
+            provider: "11labs",
+            voiceId: "21m00Tcm4TlvDq8ikWAM",
+          },
+          firstMessage: "Hi! I'm your Luma voice assistant. I can help you with questions about safe walking paths and navigation. How can I assist you today?",
+        };
+
+        // Button configuration
+        const buttonConfig = {
+          position: "bottom-left",
+          offset: "20px",
+          width: "60px",
+          height: "60px",
+          idle: {
+            color: "#22c55e",
+            type: "round",
+            icon: "https://unpkg.com/lucide-static@0.321.0/icons/mic.svg",
+          },
+          loading: {
+            color: "#3b82f6",
+            type: "round",
+            icon: "https://unpkg.com/lucide-static@0.321.0/icons/loader-2.svg",
+          },
+          active: {
+            color: "#dc2626",
+            type: "round",
+            icon: "https://unpkg.com/lucide-static@0.321.0/icons/mic-off.svg",
+          },
+        };
+
+        // Initialize Vapi with the fetched API key
+        try {
+          const vapi = window.vapiSDK.run({
+            apiKey: vapiKey,
+            assistant: assistant,
+            config: buttonConfig
+          });
+
+          if (vapi) {
+            // Store vapi instance globally for potential future use
+            window.vapiInstance = vapi;
+            
+            // Add comprehensive event listeners
+            vapi.on('call-start', () => {
+              console.log('🎤 Voice assistant call started');
+              // Optional: Show status indicator in your app
+              if (window.statusEl) {
+                window.statusEl.textContent = 'Voice assistant active';
+              }
+            });
+            
+            vapi.on('call-end', () => {
+              console.log('🎤 Voice assistant call ended');
+              // Clear status
+              if (window.statusEl) {
+                window.statusEl.textContent = '';
+              }
+            });
+            
+            vapi.on('speech-start', () => {
+              console.log('🎤 User started speaking');
+            });
+            
+            vapi.on('speech-end', () => {
+              console.log('🎤 User stopped speaking');
+            });
+            
+            vapi.on('message', (message) => {
+              console.log('🎤 Message:', message);
+              // You can process transcripts or other messages here
+            });
+            
+            vapi.on('error', (error) => {
+              console.error('🎤 Voice assistant error:', error);
+              // Show user-friendly error message
+              if (window.statusEl) {
+                window.statusEl.textContent = 'Voice assistant temporarily unavailable';
+                setTimeout(() => {
+                  if (window.statusEl) window.statusEl.textContent = '';
+                }, 5000);
+              }
+            });
+            
+            console.log('🎤 Vapi voice assistant initialized successfully');
+          } else {
+            console.warn('🎤 Failed to initialize Vapi voice assistant');
+          }
+        } catch (error) {
+          console.error('🎤 Error initializing voice assistant:', error);
+          // Gracefully handle initialization errors
+          if (error.message && error.message.includes('API key')) {
+            console.warn('🎤 Please set your Vapi API key to enable voice assistant');
+          }
+        }
+      };
+    })(document, "script");
+  </script>
+
   <style>
     html, body, #map { height:100%; margin:0; }
 
@@ -335,6 +468,42 @@
       0% { transform: scale(0.8); opacity: 1; }
       100% { transform: scale(2); opacity: 0; }
     }
+
+    /* Vapi Voice Assistant Button Styling */
+    .vapi-btn {
+      backdrop-filter: blur(10px) !important;
+      box-shadow: 0 8px 32px rgba(0,0,0,.3), 0 0 0 1px rgba(255,255,255,.15) !important;
+      border: none !important;
+      transition: all 0.3s ease !important;
+      animation: none !important;
+      width: 60px !important;
+      height: 60px !important;
+      z-index: 1000 !important;
+    }
+
+    .vapi-btn:hover {
+      transform: none !important;
+    }
+    
+    .vapi-btn-is-active {
+      animation: pulse-active 2s infinite !important;
+    }
+    
+    @keyframes pulse-active {
+      0% { box-shadow: 0 8px 32px rgba(220, 38, 38, 0.3), 0 0 0 1px rgba(220, 38, 38, 0.5); }
+      50% { box-shadow: 0 12px 40px rgba(220, 38, 38, 0.5), 0 0 0 2px rgba(220, 38, 38, 0.7); }
+      100% { box-shadow: 0 8px 32px rgba(220, 38, 38, 0.3), 0 0 0 1px rgba(220, 38, 38, 0.5); }
+    }
+    
+    .vapi-btn-is-loading {
+      animation: pulse-loading 1.5s infinite !important;
+    }
+    
+    @keyframes pulse-loading {
+      0% { box-shadow: 0 8px 32px rgba(59, 130, 246, 0.3), 0 0 0 1px rgba(59, 130, 246, 0.5); }
+      50% { box-shadow: 0 12px 40px rgba(59, 130, 246, 0.5), 0 0 0 2px rgba(59, 130, 246, 0.7); }
+      100% { box-shadow: 0 8px 32px rgba(59, 130, 246, 0.3), 0 0 0 1px rgba(59, 130, 246, 0.5); }
+    }
   </style>
 </head>
 <body>
@@ -437,6 +606,9 @@
     let map, originCoord=null, destCoord=null, originText=null, destText=null;
     const statusEl = document.getElementById("status");
     const metricsEl = document.getElementById("metrics");
+    
+    // Make statusEl globally available for Vapi integration
+    window.statusEl = statusEl;
 
     const goBtn = document.getElementById("go");
     const markers = { start: null, end: null };
