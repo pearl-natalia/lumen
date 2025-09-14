@@ -217,5 +217,3 @@ def get_collisions(out_path="sources/collisions.csv", city_filter=None, page_siz
 
     print(f"{'Created' if mode=='w' else 'Updated'} {out_path} | +{len(new_rows)} new rows")
 
-get_collisions()
-get_incidents()

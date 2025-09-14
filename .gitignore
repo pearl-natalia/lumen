@@ -1,3 +1,6 @@
 .env
 .venv/
 .DS_Store
+cache/
+__pycache__
+=2.0

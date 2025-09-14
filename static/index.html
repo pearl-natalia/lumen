@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Luma - Safe Walking Paths</title>
+  <link rel="icon" type="image/png" href="/static/logo.png?v=1">
+  <link rel="apple-touch-icon" href="/static/logo.png?v=1">
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.css" rel="stylesheet" />
+
+  <!-- Mapbox GL Geocoder -->
+  <link rel="stylesheet" href="https://unpkg.com/@mapbox/mapbox-gl-geocoder@5.0.1/dist/mapbox-gl-geocoder.css" />
+  <script src="https://unpkg.com/@mapbox/mapbox-gl-geocoder@5.0.1/dist/mapbox-gl-geocoder.min.js"></script>
+
+  <style>
+    html, body, #map { height:100%; margin:0; }
+
+    #panel {
+      position:absolute; z-index:10; top:12px; left:12px; bottom:12px; width:360px;
+      background:rgba(65,65,75,0.88); padding:16px; border-radius:12px; 
+      box-shadow:0 8px 32px rgba(0,0,0,.3), 0 0 0 1px rgba(255,255,255,.15);
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; font-size:14px;
+      overflow-y:auto; backdrop-filter:blur(10px); color:#fff;
+    }
+
+    .field-label { font-size:12px; color:#ccc; margin-top:8px; margin-bottom:6px; font-weight:500; }
+    .geocoder { margin-bottom:14px; }
+
+    button, select { 
+      width:100%; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,.2); 
+      background:rgba(255,255,255,.1); color:#fff; transition:all 0.2s ease; 
+    }
+    button:hover, select:hover { 
+      background:rgba(255,255,255,.15); border-color:rgba(255,255,255,.3); 
+    }
+    button:disabled { opacity:0.5; cursor:not-allowed; }
+    #hint { font-size:11px; color:#aaa; margin-top:4px; }
+
+    #toggles { display:flex; gap:8px; margin-top:8px; }
+    #toggles label { 
+      display:flex; align-items:center; gap:6px; font-size:13px; color:#ddd; cursor:pointer; 
+    }
+    #toggles input[type="checkbox"] { accent-color:#4a9eff; }
+
+    #legend { margin-top:10px; font-size:12px; color:#ccc; display:flex; gap:16px; }
+    .swatch { width:14px; height:4px; border-radius:2px; display:inline-block; vertical-align:middle; margin-right:6px; }
+
+    #metrics { 
+      font-size:12px; color:#ddd; margin-top:8px; line-height:1.4; white-space:pre-line; 
+    }
+    #status { font-size:12px; color:#bbb; margin-top:8px; min-height:1em; }
+
+    /* geocoder dropdown layering */
+    .mapboxgl-ctrl-geocoder { 
+      position: relative; z-index: 10; width: 100% !important; 
+      background: rgba(255,255,255,.08) !important; 
+      border: 1px solid rgba(255,255,255,.15) !important;
+      border-radius: 8px !important;
+      transition: all 0.2s ease !important;
+    }
+    .mapboxgl-ctrl-geocoder:hover {
+      background: rgba(255,255,255,.12) !important;
+      border-color: rgba(255,255,255,.25) !important;
+    }
+    .mapboxgl-ctrl-geocoder:focus-within {
+      background: rgba(255,255,255,.15) !important;
+      border-color: #22c55e !important;
+      box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2) !important;
+    }
+    .mapboxgl-ctrl-geocoder .mapboxgl-ctrl-geocoder--input { 
+      width: 100% !important; 
+      background: transparent !important;
+      border: none !important;
+      color: #fff !important;
+      padding: 12px 16px 12px 40px !important;
+      font-size: 14px !important;
+    }
+    .mapboxgl-ctrl-geocoder .mapboxgl-ctrl-geocoder--icon {
+      left: 12px !important;
+      top: 50% !important;
+      transform: translateY(-50%) !important;
+    }
+    .mapboxgl-ctrl-geocoder .mapboxgl-ctrl-geocoder--input::placeholder {
+      color: #aaa !important;
+    }
+    .mapboxgl-ctrl-geocoder .suggestions,
+    .mapboxgl-ctrl-geocoder .suggestions-wrapper {
+      position: absolute; top: 100%; left: 0; right: 0; z-index: 10000 !important;
+    }
+    #start-geocoder .mapboxgl-ctrl-geocoder { z-index: 20; }
+    #start-geocoder .mapboxgl-ctrl-geocoder .suggestions { z-index: 10001 !important; }
+    #end-geocoder   .mapboxgl-ctrl-geocoder { z-index: 5; }
+
+    /* remove spinner + clear (X) */
+    .mapboxgl-ctrl-geocoder .loading { display:none !important; }
+    .mapboxgl-ctrl-geocoder .mapboxgl-ctrl-geocoder--button { display:none !important; }
+
+    /* tiny “2D/3D” toggle control */
+    .pitch-toggle.mapboxgl-ctrl button {
+      width:34px; height:34px; line-height:34px; text-align:center;
+      font:600 12px/34px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      background:#fff; border:none; cursor:pointer; border-radius:4px;
+      box-shadow:0 0 0 2px rgba(0,0,0,.05); color:#333;
+    }
+    
+    /* Match zoom button width */
+    .mapboxgl-ctrl-zoom-in, .mapboxgl-ctrl-zoom-out {
+      width:34px !important; height:34px !important;
+    }
+
+    /* New Sidebar Styling */
+    .header-section {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+    }
+    .app-icon {
+      width: 120px; height: 120px; border-radius: 20px;
+      display: flex; align-items: center; justify-content: center;
+      background: transparent; /* Remove background since SVG has its own */
+    }
+    .app-icon img {
+      max-width: 110px; max-height: 110px; /* Much larger logo size */
+      width: auto; height: auto; /* Maintain aspect ratio */
+      border-radius: 16px;
+      object-fit: contain; /* Preserve aspect ratio without stretching */
+    }
+    .app-info h1 {
+      margin: 0; font-size: 32px; font-weight: 700; color: #fff;
+    }
+    .app-info p {
+      margin: 0; font-size: 18px; color: #aaa; margin-top: 4px;
+    }
+    
+    .safety-badge {
+      background: rgba(34, 197, 94, 0.2); color: #22c55e; padding: 8px 12px;
+      border-radius: 20px; font-size: 12px; font-weight: 500; margin-bottom: 24px;
+      display: inline-block;
+    }
+
+    .section {
+      margin-bottom: 24px;
+    }
+    .section-header {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 24px; margin-top: 8px;
+    }
+    .section-header h2 {
+      margin: 0; font-size: 18px; font-weight: 600; color: #fff;
+    }
+    .section-icon {
+      font-size: 18px;
+    }
+    .section h3 {
+      margin: 0 0 16px 0; font-size: 16px; font-weight: 600; color: #fff;
+    }
+
+    .input-group {
+      margin-bottom: 20px;
+    }
+    .input-label {
+      display: block; margin-bottom: 10px; font-size: 14px; color: #ccc; font-weight: 500;
+    }
+    .input-wrapper {
+      position: relative; width: 100%;
+    }
+    .input-wrapper .mapboxgl-ctrl-geocoder {
+      width: 100% !important; box-sizing: border-box;
+    }
+    
+    .section-divider {
+      height: 1px; background: rgba(255,255,255,.1); margin: 20px 0;
+    }
+
+    .route-selector {
+      display: flex; gap: 8px; margin-bottom: 16px;
+    }
+    .route-btn {
+      flex: 1; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1);
+      color: #ccc; padding: 12px 16px; border-radius: 8px; cursor: pointer;
+      transition: all 0.2s ease; display: flex; align-items: center; gap: 8px;
+      justify-content: center; font-size: 14px;
+    }
+    .route-btn:hover {
+      background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.2);
+    }
+    .route-btn.active {
+      background: rgba(34, 197, 94, 0.1); border-color: #22c55e; color: #22c55e;
+    }
+    .route-btn[data-mode="safest"].active {
+      background: rgba(147, 51, 234, 0.1); border-color: #9333ea; color: #9333ea;
+    }
+    .route-btn[data-mode="shortest"].active {
+      background: rgba(59, 130, 246, 0.1); border-color: #3b82f6; color: #3b82f6;
+    }
+    .route-btn .btn-icon {
+      font-size: 16px;
+    }
+
+
+
+    .find-path-btn {
+      width: 100%; background: #22c55e; border: 1px solid #22c55e;
+      color: #fff; padding: 16px; border-radius: 8px; font-size: 16px; font-weight: 600;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      cursor: pointer; transition: all 0.2s ease;
+    }
+    .find-path-btn:hover:not(:disabled) {
+      background: #16a34a;
+    }
+    .find-path-btn:disabled {
+      opacity: 0.5; cursor: not-allowed;
+    }
+
+    #results-section {
+      border-top: 1px solid rgba(255,255,255,.1); padding-top: 16px;
+    }
+
+    /* Sleek Legend */
+    .map-legend {
+      position: absolute; bottom: 20px; right: 20px; z-index: 10;
+      background: rgba(30,30,35,0.95); backdrop-filter: blur(10px);
+      border-radius: 12px; padding: 16px; min-width: 160px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.3), 0 0 0 1px rgba(255,255,255,.1);
+      font-family: system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    }
+    .sidebar h1 {
+      font-size: 28px; font-weight: 700; color: #fff; margin-bottom: 16px;
+      text-align: center; letter-spacing: -0.5px; margin-top: 8px;
+    }
+    .sidebar .tagline {
+      font-size: 14px; color: #aaa; text-align: center; margin-bottom: 32px;
+      font-weight: 400;
+    }
+    .legend-title {
+      font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .legend-title svg {
+      flex-shrink: 0; display: block;
+    }
+    .legend-title span {
+      text-decoration: none !important;
+      position: relative;
+      z-index: 1;
+    }
+    .legend-item {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+      font-size: 12px; color: #ccc;
+    }
+    .legend-item:last-child {
+      margin-bottom: 0;
+    }
+    .legend-symbol {
+      width: 16px; height: 3px; border-radius: 2px; flex-shrink: 0;
+    }
+    .legend-symbol.route-safest { background: #4a9eff; }
+    .legend-symbol.route-shortest { background: #ff6b6b; }
+    .legend-symbol.user-location { 
+      width: 12px; height: 12px; border-radius: 50%; background: #4285f4; 
+      border: 2px solid #fff; position: relative;
+    }
+    .legend-symbol.buildings { background: #2a2a2a; height: 8px; }
+    .legend-symbol.grass { background: #5a6b5e; }
+
+
+    /* User Location Indicator */
+    .user-location-marker {
+      width: 20px; height: 20px; border-radius: 50%;
+      background: #4285f4; border: 3px solid #fff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      position: relative;
+    }
+    .user-location-marker::before {
+      content: ''; position: absolute; top: -10px; left: -10px;
+      width: 36px; height: 36px; border-radius: 50%;
+      background: rgba(66, 133, 244, 0.3);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.8); opacity: 1; }
+      100% { transform: scale(2); opacity: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div id="panel">
+    <!-- Header Section -->
+    <div class="header-section">
+      <div class="app-icon">
+        <img src="/static/logo.png" alt="Luma Logo" width="40" height="40">
+      </div>
+      <div class="app-info">
+        <h1>Luma</h1>
+        <p>Safe Walking Paths</p>
+      </div>
+    </div>
+    
+
+
+    <!-- Route Planning Section -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-route">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M3 19a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+            <path d="M19 7a2 2 0 1 0 0 -4a2 2 0 0 0 0 4z" />
+            <path d="M11 19h5.5a3.5 3.5 0 0 0 0 -7h-8a3.5 3.5 0 0 1 0 -7h4.5" />
+          </svg>
+        </span>
+        <h2>Plan Your Route</h2>
+      </div>
+      
+      <div class="section-divider"></div>
+
+      <div class="input-group">
+        <label class="input-label">Start Location</label>
+        <div class="input-wrapper">
+          <div id="start-geocoder" class="geocoder"></div>
+        </div>
+      </div>
+
+      <div class="input-group">
+        <label class="input-label">Destination</label>
+        <div class="input-wrapper">
+          <div id="end-geocoder" class="geocoder"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Route Preferences Section -->
+    <div class="section">
+      <h3>Route Preferences</h3>
+      
+      <div class="route-selector">
+        <button class="route-btn active" data-mode="safest" id="btn-safest">
+          <span class="btn-icon">🔰</span>
+          <span class="btn-text">Safest</span>
+        </button>
+        <button class="route-btn" data-mode="shortest" id="btn-shortest">
+          <span class="btn-icon">⏱️</span>
+          <span class="btn-text">Shortest</span>
+        </button>
+      </div>
+      
+
+
+      <button id="go" class="find-path-btn">
+        Find A Safe Path
+      </button>
+    </div>
+
+    <!-- Crime Layer Section -->
+    <div class="section">
+      <h3>Safety Layers</h3>
+      
+      <button class="route-btn" id="btn-crime-layer" data-layer="crime">
+        <span class="btn-icon">🚨</span>
+        <span class="btn-text">Crime Data</span>
+      </button>
+    </div>
+
+    <!-- Results Section -->
+    <div id="results-section" class="section" style="display:none;">
+
+      <div id="metrics"></div>
+    </div>
+
+    <div id="status"></div>
+  </div>
+
+  <div id="map"></div>
+  
+
+
+  <script>
+    let map, originCoord=null, destCoord=null, originText=null, destText=null;
+    const statusEl = document.getElementById("status");
+    const metricsEl = document.getElementById("metrics");
+
+    const goBtn = document.getElementById("go");
+    const markers = { start: null, end: null };
+    let userLoc = null;
+    let crimeDataLoaded = false;
+    let crimeLayerVisible = false;
+    let userLocationMarker = null;
+
+    function getUserLocation() {
+      return new Promise((resolve) => {
+        if (!("geolocation" in navigator)) return resolve(null);
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve({ lng: pos.coords.longitude, lat: pos.coords.latitude }),
+          ()   => resolve(null),
+          { enableHighAccuracy: true, timeout: 6000, maximumAge: 600000 }
+        );
+      });
+    }
+
+    // --- Custom 2D/3D toggle that remembers last 3D view ---
+    class PitchToggle {
+      constructor(opts={}) {
+        this.default3D = { pitch: opts.pitch ?? 60, bearing: opts.bearing ?? -20 };
+        this._last3D = null; this._map = null; this._btn = null;
+      }
+      onAdd(map) {
+        this._map = map;
+        const container = document.createElement('div');
+        container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group pitch-toggle';
+        this._btn = document.createElement('button');
+        this._btn.type = 'button'; this._btn.title = 'Toggle 2D/3D (T)'; this._btn.textContent = '3D';
+        this._btn.onclick = () => this.toggle();
+        container.appendChild(this._btn);
+        document.addEventListener('keydown', (e) => { if ((e.key||'').toLowerCase()==='t') this.toggle(); });
+        map.on('pitch', () => this._btn.textContent = (map.getPitch()>5?'2D':'3D'));
+        return container;
+      }
+      onRemove(){ this._btn.remove(); this._map=null; }
+      toggle(){
+        const m=this._map;
+        if ((m.getPitch()||0)>5){ this._last3D={pitch:m.getPitch(),bearing:m.getBearing()}; m.easeTo({pitch:0,bearing:0,duration:500}); }
+        else { const t=this._last3D||this.default3D; m.easeTo({pitch:t.pitch,bearing:t.bearing,duration:500}); }
+        this._btn.textContent = (m.getPitch()>5?'2D':'3D');
+      }
+    }
+
+    async function init() {
+      try {
+        const t = await fetch("/token"); const { token } = await t.json();
+        if (!token) throw new Error("Missing MAPBOX_TOKEN");
+        mapboxgl.accessToken = token;
+
+        userLoc = await getUserLocation();
+        const initialCenter = userLoc ? [userLoc.lng, userLoc.lat] : [-80.5, 43.46];
+
+        map = new mapboxgl.Map({
+          container: "map",
+          style: "mapbox://styles/mapbox/dark-v11",
+          center: initialCenter,
+          zoom: userLoc ? 13 : 11.5,
+          pitch: 60, bearing: -20, antialias: true
+        });
+
+        map.addControl(new mapboxgl.NavigationControl({ showCompass: false, showZoom: true, visualizePitch: true }), "top-right");
+        map.addControl(new PitchToggle({ pitch: 60, bearing: -20 }), "top-right");
+
+        map.on("load", () => {
+          add3DScene();        // terrain + sky + buildings
+          addCampusTheme();    // greener grass & warm buildings
+          ensureLayers(); updateVisibility();
+          goBtn.disabled = false;
+          
+          // Add user location marker if available
+          if (userLoc) {
+            addUserLocationMarker([userLoc.lng, userLoc.lat]);
+          }
+        });
+
+        // Geocoder with nearby bias + address enrichment
+        const baseOpts = {
+          accessToken: mapboxgl.accessToken, mapboxgl, marker:false,
+          countries:"ca", types:"place,poi,address,locality,neighborhood",
+          proximity: userLoc || { longitude: -80.49, latitude: 43.45 }, limit:6,
+          externalGeocoder: addressExternalGeocoder
+        };
+        const startGc = new MapboxGeocoder({ ...baseOpts, placeholder: "Start (place or address)" });
+        const endGc   = new MapboxGeocoder({ ...baseOpts, placeholder: "End (place or address)" });
+        document.getElementById("start-geocoder").appendChild(startGc.onAdd(map));
+        document.getElementById("end-geocoder").appendChild(endGc.onAdd(map));
+
+        startGc.on("result", (e) => { originCoord=e.result.center; originText=e.result.place_name; setMarker("start", originCoord); });
+        endGc.on("result",   (e) => { destCoord=e.result.center;   destText=e.result.place_name;   setMarker("end", destCoord);   });
+        startGc.on("clear", ()=>{ originCoord=null; originText=null; removeMarker("start"); });
+        endGc.on("clear",   ()=>{ destCoord=null;  destText=null;  removeMarker("end");  });
+
+        const startInput = document.querySelector("#start-geocoder .mapboxgl-ctrl-geocoder--input");
+        const endInput   = document.querySelector("#end-geocoder .mapboxgl-ctrl-geocoder--input");
+        startInput.addEventListener("keydown",(e)=>{ if(e.key==="Enter"){ originText=startInput.value.trim(); originCoord=null; removeMarker("start"); e.preventDefault(); }});
+        endInput.addEventListener("keydown",  (e)=>{ if(e.key==="Enter"){ destText=endInput.value.trim();   destCoord=null;   removeMarker("end");   e.preventDefault(); compute(); }});
+
+
+        goBtn.addEventListener("click", compute);
+
+        // New UI event handlers
+        setupNewUIHandlers();
+
+      } catch (e) { statusEl.textContent = "Startup error: " + e.message; }
+    }
+
+    // ---------- 3D scene ----------
+    function add3DScene() {
+      if (!map.getSource("terrain-dem")) {
+        map.addSource("terrain-dem", {
+          type: "raster-dem",
+          url: "mapbox://mapbox.mapbox-terrain-dem-v1",
+          tileSize: 512, maxzoom: 14
+        });
+        map.setTerrain({ source: "terrain-dem", exaggeration: 1.4 });
+      }
+      if (!map.getLayer("sky")) {
+        map.addLayer({ id:"sky", type:"sky", paint:{
+          "sky-type":"atmosphere","sky-atmosphere-sun":[0,90],"sky-atmosphere-sun-intensity":15 }});
+      }
+      const beforeId = firstSymbolLayerId();
+      if (!map.getLayer("3d-buildings")) {
+        map.addLayer({
+          id:"3d-buildings", source:"composite", "source-layer":"building", type:"fill-extrusion",
+          minzoom:12, filter:["==",["get","extrude"],"true"],
+          paint:{
+            /* dark buildings for better visibility */
+            "fill-extrusion-color":[ "interpolate", ["linear"], ["get","height"],
+              0,  "#1a1a1a",
+              80, "#2a2a2a",
+              200,"#3a3a3a"
+            ],
+            "fill-extrusion-height":["get","height"],
+            "fill-extrusion-base":["get","min_height"],
+            "fill-extrusion-opacity":0.95
+          }
+        }, beforeId || undefined);
+      }
+    }
+    function firstSymbolLayerId(){ const L=map.getStyle().layers; for(const l of L){ if(l.type==="symbol") return l.id; } return null; }
+
+    // ---------- Campus color theme ----------
+    function addCampusTheme() {
+      const beforeId = firstSymbolLayerId();
+
+      // Greener parks/grass/wood/scrub/crop
+      const vegClasses = ["grass","wood","scrub","crop"];
+      if (!map.getLayer("campus-veg")) {
+        map.addLayer({
+          id:"campus-veg", type:"fill", source:"composite", "source-layer":"landcover",
+          filter:["in", ["get","class"], ["literal", vegClasses]],
+          paint:{
+            "fill-color":[ "interpolate", ["linear"], ["zoom"],
+              10, "#5a6b5e", 14, "#556660", 18, "#506158"  /* cleaner, darker greens */
+            ],
+            "fill-opacity":0.7
+          }
+        }, beforeId || undefined);
+      }
+
+      // Parks, pitches, recreation grounds, campus-like landuse
+      const luClasses = ["park","pitch","recreation_ground","school","university","cemetery"];
+      if (!map.getLayer("campus-landuse")) {
+        map.addLayer({
+          id:"campus-landuse", type:"fill", source:"composite", "source-layer":"landuse",
+          filter:["in", ["get","class"], ["literal", luClasses]],
+          paint:{
+            "fill-color":"#5a6b5e",
+            "fill-opacity":0.65
+          }
+        }, beforeId || undefined);
+      }
+
+      // Water slightly teal
+      if (!map.getLayer("campus-water")) {
+        map.addLayer({
+          id:"campus-water", type:"fill", source:"composite", "source-layer":"water",
+          paint:{ "fill-color":"#2a6f8f", "fill-opacity":0.85 }
+        }, beforeId || undefined);
+      }
+
+      // Gentle tint for walkways/footpaths
+      if (!map.getLayer("campus-paths")) {
+        map.addLayer({
+          id:"campus-paths", type:"line", source:"composite", "source-layer":"road",
+          filter:["in", ["get","class"], ["literal", ["path","pedestrian","footway"]]],
+          paint:{
+            "line-color":"#666666",
+            "line-width":["interpolate",["linear"],["zoom"],12,0.5,16,2.2],
+            "line-opacity":0.55
+          }
+        }, beforeId || undefined);
+      }
+    }
+
+    // ---------- New UI Handlers ----------
+    function setupNewUIHandlers() {
+      const routeBtns = document.querySelectorAll('.route-btn');
+      const resultsSection = document.getElementById('results-section');
+
+      // Route button selection - allow multiple selection
+      routeBtns.forEach(btn => {
+        if (btn.dataset.layer === 'crime') {
+          // Special handler for crime layer button
+          btn.addEventListener('click', toggleCrimeLayer);
+        } else {
+          // Regular route buttons
+          btn.addEventListener('click', () => {
+            btn.classList.toggle('active');
+            // Update route visibility immediately if routes are already computed
+            if (window.routeData) updateRouteVisibilityFromButtons();
+          });
+        }
+      });
+
+      // Initialize with safest button active by default
+      document.getElementById('btn-safest').classList.add('active');
+      
+      // Show results section when routes are computed
+      window.showResults = () => {
+        resultsSection.style.display = 'block';
+      };
+    }
+
+    // ---------- Route layers + helpers ----------
+    function ensureLayers() {
+      if (!map.getSource("routes")) {
+        map.addSource("routes", { type:"geojson", data:{ "type":"FeatureCollection","features":[] } });
+        map.addLayer({ id:"route-safest", type:"line", source:"routes",
+          filter:["==",["get","route_type"],"safest"],
+          layout:{ "line-join":"round", "line-cap":"round" },
+          paint:{ "line-width":6,"line-color":"#9333ea","line-opacity":0.95,"line-blur":0.4 }});
+        map.addLayer({ id:"route-shortest", type:"line", source:"routes",
+          filter:["==",["get","route_type"],"shortest"],
+          layout:{ "line-join":"round", "line-cap":"round" },
+          paint:{ "line-width":4,"line-color":"#3b82f6","line-opacity":0.95,"line-blur":0.4 }});
+        
+        // Add hover tooltips for routes
+        setupRouteHoverTooltips();
+      }
+    }
+
+    function setMarker(which,lngLat){ 
+      if (!markers[which]) {
+        // Create custom green pin marker element
+        const el = document.createElement('div');
+        el.className = 'location-marker';
+        el.style.cssText = `
+          width: 20px; height: 30px; position: relative;
+          cursor: pointer;
+        `;
+        el.innerHTML = `
+          <div style="
+            width: 20px; height: 20px; border-radius: 50% 50% 50% 0;
+            background: #22c55e; border: 2px solid white;
+            transform: rotate(-45deg); position: absolute; top: 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+          "></div>
+          <div style="
+            width: 6px; height: 6px; border-radius: 50%;
+            background: white; position: absolute;
+            top: 5px; left: 7px; z-index: 1;
+          "></div>
+        `;
+        markers[which] = new mapboxgl.Marker(el);
+      }
+      markers[which].setLngLat(lngLat).addTo(map); 
+    }
+    function removeMarker(which){ if(markers[which]){ markers[which].remove(); markers[which]=null; } }
+    
+    function addUserLocationMarker(lngLat) {
+      if (userLocationMarker) {
+        userLocationMarker.remove();
+      }
+      
+      const el = document.createElement('div');
+      el.className = 'user-location-marker';
+      
+      userLocationMarker = new mapboxgl.Marker(el)
+        .setLngLat(lngLat)
+        .addTo(map);
+    }
+    function fitToFeatures(fc){
+      const coords=[]; (fc.features||[]).forEach(f=>{ if(f.geometry?.type==="LineString") coords.push(...f.geometry.coordinates); });
+      if(coords.length<2) return;
+      const lons=coords.map(c=>c[0]), lats=coords.map(c=>c[1]);
+      map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding:90,duration:800 });
+    }
+    function formatTime(seconds) {
+      if (!seconds) return null;
+      const totalMinutes = Math.round(seconds / 60);
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      
+      if (hours > 0) {
+        return minutes > 0 ? `${hours}h ${minutes}min` : `${hours}h`;
+      }
+      return `${minutes}min`;
+    }
+
+    function summarizeMetrics(fc){
+      // Don't display metrics in results section anymore
+      // Metrics will be shown on hover instead
+      metricsEl.textContent = "";
+    }
+
+    function setupRouteHoverTooltips() {
+      // Create tooltip element
+      const tooltip = document.createElement('div');
+      tooltip.className = 'route-tooltip';
+      tooltip.style.cssText = `
+        position: absolute; z-index: 1000; pointer-events: none;
+        background: rgba(0,0,0,0.9); color: white; padding: 10px 14px;
+        border-radius: 6px; font-size: 14px; font-weight: 500;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        transform: translate(-50%, -100%); margin-top: -8px;
+        display: none; white-space: nowrap;
+      `;
+      document.body.appendChild(tooltip);
+
+      // Add hover events for both route layers
+      ['route-safest', 'route-shortest'].forEach(layerId => {
+        map.on('mouseenter', layerId, (e) => {
+          map.getCanvas().style.cursor = 'pointer';
+          
+          const feature = e.features[0];
+          const props = feature.properties;
+          const routeType = props.route_type || 'route';
+          const km = props.length_m ? (props.length_m / 1000).toFixed(2) + ' km' : '';
+          const time = props.time_s ? formatTime(props.time_s) : '';
+          
+          const routeLabel = routeType === 'safest' ? 'Safest Route' : 'Shortest Route';
+          tooltip.innerHTML = `${routeLabel}<br>${km} • ${time}`;
+          tooltip.style.display = 'block';
+        });
+
+        map.on('mouseleave', layerId, () => {
+          map.getCanvas().style.cursor = '';
+          tooltip.style.display = 'none';
+        });
+
+        map.on('mousemove', layerId, (e) => {
+          tooltip.style.left = e.point.x + 'px';
+          tooltip.style.top = e.point.y + 'px';
+        });
+      });
+    }
+
+    // Crime layer functionality
+    async function loadCrimeData() {
+      if (crimeDataLoaded) return;
+      
+      try {
+        statusEl.textContent = "Loading crime data...";
+        console.log('[DEBUG] Fetching crime data from /crime-data');
+        
+        const response = await fetch('/crime-data');
+        if (!response.ok) throw new Error('Failed to fetch crime data');
+        
+        const crimeData = await response.json();
+        console.log('[DEBUG] Crime data received:', crimeData);
+        console.log('[DEBUG] Number of features:', crimeData.features?.length || 0);
+        
+        // Add crime data source
+        if (!map.getSource('crime-data')) {
+          map.addSource('crime-data', {
+            type: 'geojson',
+            data: crimeData
+          });
+          console.log('[DEBUG] Crime data source added to map');
+        }
+        
+        // Add crime streets layer (red lines)
+        if (!map.getLayer('crime-streets')) {
+          map.addLayer({
+            id: 'crime-streets',
+            type: 'line',
+            source: 'crime-data',
+            paint: {
+              'line-width': 8,
+              'line-color': '#dc2626',
+              'line-opacity': 0.8,
+              'line-blur': 1
+            },
+            layout: {
+              'visibility': 'none',
+              'line-join': 'round',
+              'line-cap': 'round'
+            }
+          });
+          console.log('[DEBUG] Crime streets layer added to map');
+        }
+        
+        // Setup crime layer hover tooltips after a short delay to ensure layer is ready
+        setTimeout(() => {
+          setupCrimeHoverTooltips();
+          console.log('[DEBUG] Crime hover tooltips setup complete');
+        }, 100);
+        
+        crimeDataLoaded = true;
+        statusEl.textContent = "";
+        console.log('[DEBUG] Crime data loading complete');
+        
+      } catch (error) {
+        console.error('Error loading crime data:', error);
+        statusEl.textContent = "Failed to load crime data";
+        setTimeout(() => statusEl.textContent = "", 3000);
+      }
+    }
+
+    function toggleCrimeLayer() {
+      const crimeBtn = document.getElementById('btn-crime-layer');
+      console.log('[DEBUG] Crime layer toggle clicked');
+      console.log('[DEBUG] crimeDataLoaded:', crimeDataLoaded);
+      console.log('[DEBUG] crimeLayerVisible:', crimeLayerVisible);
+      
+      if (!crimeDataLoaded) {
+        console.log('[DEBUG] Loading crime data for first time');
+        loadCrimeData().then(() => {
+          if (crimeDataLoaded) {
+            crimeLayerVisible = true;
+            console.log('[DEBUG] Setting crime layer visibility to visible');
+            map.setLayoutProperty('crime-streets', 'visibility', 'visible');
+            crimeBtn.classList.add('active');
+            console.log('[DEBUG] Crime layer should now be visible');
+          }
+        });
+      } else {
+        crimeLayerVisible = !crimeLayerVisible;
+        console.log('[DEBUG] Toggling crime layer visibility to:', crimeLayerVisible ? 'visible' : 'none');
+        map.setLayoutProperty('crime-streets', 'visibility', crimeLayerVisible ? 'visible' : 'none');
+        crimeBtn.classList.toggle('active', crimeLayerVisible);
+      }
+    }
+
+    function setupCrimeHoverTooltips() {
+      console.log('[DEBUG] Setting up crime hover tooltips');
+      
+      // Check if layer exists
+      if (!map.getLayer('crime-streets')) {
+        console.error('[DEBUG] crime-streets layer not found!');
+        return;
+      }
+      
+      // Remove existing tooltip if it exists
+      const existingTooltip = document.querySelector('.crime-tooltip');
+      if (existingTooltip) {
+        existingTooltip.remove();
+      }
+      
+      // Create tooltip element for crime data
+      const crimeTooltip = document.createElement('div');
+      crimeTooltip.className = 'crime-tooltip';
+      crimeTooltip.style.cssText = `
+        position: absolute; z-index: 1000; pointer-events: none;
+        background: rgba(220, 38, 38, 0.95); color: white; padding: 12px 16px;
+        border-radius: 8px; font-size: 14px; font-weight: 500;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        transform: translate(-50%, -100%); margin-top: -8px;
+        display: none; white-space: normal; max-width: 300px;
+        line-height: 1.4;
+      `;
+      document.body.appendChild(crimeTooltip);
+      console.log('[DEBUG] Crime tooltip element created and added to DOM');
+
+      // Add hover events for crime streets layer
+      map.on('mouseenter', 'crime-streets', (e) => {
+        console.log('[DEBUG] Mouse entered crime street');
+        map.getCanvas().style.cursor = 'pointer';
+        
+        const feature = e.features[0];
+        const props = feature.properties;
+        console.log('[DEBUG] Feature properties:', props);
+        
+        // Parse recent incidents from the properties
+        const recentIncidents = props.recent_incidents || [];
+        const crimeTypes = props.crime_types || [];
+        const incidentCount = props.incident_count || 0;
+        
+        // Build tooltip content for street-level crime data
+        let tooltipContent = `
+          <div style="font-weight: 600; margin-bottom: 8px; font-size: 16px;">${props.street_name}</div>
+          <div style="margin-bottom: 6px; color: #fca5a5;">
+            ${incidentCount} incident${incidentCount !== 1 ? 's' : ''} reported
+          </div>
+        `;
+        
+        // Show crime types
+        if (crimeTypes.length > 0) {
+          tooltipContent += `
+            <div style="margin-bottom: 6px;">
+              <strong>Types:</strong> ${crimeTypes.join(', ')}
+            </div>
+          `;
+        }
+        
+        // Show recent incidents
+        if (recentIncidents.length > 0) {
+          tooltipContent += `<div style="margin-bottom: 4px;"><strong>Recent incidents:</strong></div>`;
+          recentIncidents.slice(0, 2).forEach(incident => {
+            tooltipContent += `
+              <div style="margin-bottom: 4px; padding-left: 8px; font-size: 12px; opacity: 0.9;">
+                • ${incident.call_type} - ${incident.formatted_date}
+              </div>
+            `;
+          });
+          
+          if (recentIncidents.length > 2) {
+            tooltipContent += `
+              <div style="font-size: 11px; opacity: 0.7; padding-left: 8px;">
+                +${recentIncidents.length - 2} more incident${recentIncidents.length - 2 !== 1 ? 's' : ''}
+              </div>
+            `;
+          }
+        }
+        
+        crimeTooltip.innerHTML = tooltipContent;
+        crimeTooltip.style.display = 'block';
+        console.log('[DEBUG] Tooltip displayed');
+      });
+
+      map.on('mouseleave', 'crime-streets', () => {
+        console.log('[DEBUG] Mouse left crime street');
+        map.getCanvas().style.cursor = '';
+        crimeTooltip.style.display = 'none';
+      });
+
+      map.on('mousemove', 'crime-streets', (e) => {
+        if (crimeTooltip.style.display === 'block') {
+          crimeTooltip.style.left = e.point.x + 'px';
+          crimeTooltip.style.top = e.point.y + 'px';
+        }
+      });
+      
+      console.log('[DEBUG] Crime hover event listeners attached');
+    }
+
+    // Address enrichment used by externalGeocoder
+    async function addressExternalGeocoder(query) {
+      const token = mapboxgl.accessToken;
+      const base  = "https://api.mapbox.com/geocoding/v5/mapbox.places";
+      const loc   = userLoc || map.getCenter();
+      const prox  = `${loc.lng},${loc.lat}`;
+      const qs = (o) => new URLSearchParams({ access_token: token, ...o }).toString();
+
+      const fwdUrl = `${base}/${encodeURIComponent(query)}.json?` + qs({
+        types: "address", country: "ca", limit: "5", proximity: prox, autocomplete: "true", fuzzyMatch: "true"
+      });
+      const fwd = await fetch(fwdUrl).then(r => r.ok ? r.json() : {features:[]}).catch(()=>({features:[]}));
+
+      let rev = { features: [] };
+      try {
+        const placeUrl = `${base}/${encodeURIComponent(query)}.json?` + qs({
+          types: "poi,place", country: "ca", limit: "1", proximity: prox
+        });
+        const place = await fetch(placeUrl).then(r => r.ok ? r.json() : null);
+        if (place?.features?.[0]?.center) {
+          const [lon, lat] = place.features[0].center;
+          const revUrl = `${base}/${lon},${lat}.json?` + qs({ types: "address", country: "ca", limit: "6" });
+          rev = await fetch(revUrl).then(r => r.ok ? r.json() : {features:[]});
+        }
+      } catch(_) {}
+
+      const seen = new Set();
+      return [...(fwd.features||[]), ...(rev.features||[])]
+        .filter(f => { const k=f.id||f.place_name; if(seen.has(k)) return false; seen.add(k); return true; })
+        .sort((a,b) => {
+          const aIsAddr = (a.place_type||[]).includes("address");
+          const bIsAddr = (b.place_type||[]).includes("address");
+          return (aIsAddr === bIsAddr) ? 0 : (aIsAddr ? -1 : 1);
+        });
+    }
+
+    async function compute() {
+      statusEl.textContent=""; metricsEl.textContent="";
+      if(!(originText||originCoord)||!(destText||destCoord)){ 
+        statusEl.textContent="Please set both start and end locations."; 
+        return; 
+      }
+      
+      const goButton = document.getElementById('go');
+      const originalText = goButton.textContent;
+      
+      // Update button to loading state
+      goButton.textContent = "Finding a path...";
+      goButton.disabled = true;
+      
+      const mode = 'both'; // Always compute both routes
+      const payload={ mode,
+        ...(originCoord ? {start:originCoord} : {start_text:originText}),
+        ...(destCoord   ? {end:destCoord}     : {end_text:destText})
+      };
+      
+      try {
+        const resp=await fetch("/route",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+        const fc=await resp.json();
+        if(!resp.ok) throw new Error(fc.error||"Request failed");
+        
+        // Store the route data for dynamic visibility toggling
+        window.routeData = fc;
+        
+        map.getSource("routes").setData(fc); 
+        updateRouteVisibilityFromButtons(); // Use button states to show/hide routes
+        fitToFeatures(fc); 
+        summarizeMetrics(fc); // Display km and walking time metrics
+        
+        // Show results section with metrics
+        const resultsSection = document.getElementById('results-section');
+        if (resultsSection) {
+          resultsSection.style.display = 'block';
+        }
+        
+        statusEl.textContent="";
+      } catch(e){ 
+        statusEl.textContent="Error: "+e.message; 
+      } finally {
+        // Reset button to original state
+        goButton.textContent = originalText;
+        goButton.disabled = false;
+      }
+    }
+    
+    function updateRouteVisibilityFromButtons() {
+      if (!window.routeData || !window.routeData.features) return;
+      
+      const safestBtn = document.getElementById('btn-safest');
+      const shortestBtn = document.getElementById('btn-shortest');
+      
+      // Filter features based on button states
+      const visibleFeatures = window.routeData.features.filter(feature => {
+        const routeType = feature.properties?.route_type;
+        if (routeType === 'safest') {
+          return safestBtn.classList.contains('active');
+        }
+        if (routeType === 'shortest') {
+          return shortestBtn.classList.contains('active');
+        }
+        return true; // Show other features by default
+      });
+      
+      // Update the map with filtered features
+      const filteredData = {
+        ...window.routeData,
+        features: visibleFeatures
+      };
+      
+      map.getSource("routes").setData(filteredData);
+    }
+    
+    function updateRouteDisplay() {
+      // Legacy function - now just calls the new function
+      updateRouteVisibilityFromButtons();
+    }
+
+    init();
+  </script>
+</body>
+</html>
